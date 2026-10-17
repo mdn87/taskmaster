@@ -13,6 +13,7 @@ build/
 dist/
 .venv/
 .local/
+/taskmaster.toml
 .worktrees/
 .Codex/handoff.md
 .Codex/handoff-history/

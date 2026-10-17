@@ -80,6 +80,10 @@ the bytes it verifies. CRLF translation or block modification fails verification
 ## Dias
 
 Set `DIAS_TASKMASTER_EXPORT` on the existing Dias host to the same saved export.
+Alternatively, explicitly provision Dias's `.local/taskmaster/` directory as a
+directory link to this export's output directory; the host reads its `export.json`
+at startup without requiring inherited environment variables. Restart the host
+after configuring it. `DIAS_TASKMASTER_EXPORT=none` disables this default as well.
 The optional adapter reads it locally and sends a safe model to the Trails view;
 the browser never receives the private path. It runs no Python or owner command.
 The first release keeps the existing Node host and React display in the browser
@@ -89,3 +93,21 @@ All consumers use the same strict acceptance rules and clock-based fields.
 Dias-specific chip existence notes do not alter shared counts or hashes.
 Missing, invalid and unreadable files remain explicit; a cached view is visibly
 stale. Configuring a host is separate from global installation or remote rollout.
+
+For a persistent Lugos morning-report binding, its repository helper also reads
+`lugos/.local/taskmaster.json` when `TASKMASTER_EXPORT` is unset:
+
+```json
+{"schema_version":1,"export":"../../taskmaster/.local/active/export.json","python":"../../taskmaster/.venv/Scripts/python.exe"}
+```
+
+Paths are relative to that local configuration file; use `.venv/bin/python` on
+POSIX. The helper and morning-report workflow include the configured trail even
+when the inbox is empty. Neither consumer refreshes the export. Run `refresh`
+explicitly after changing source evidence or objective annotations.
+
+Keep the machine's `taskmaster.toml` private (it is ignored). Register only
+explicit `{objective_id, run_ids}` annotations with a known run store. An outcome
+report mentioning runs, a Dias chip title, and a test fixture are not new objective
+annotations. If discovery finds only the historical pilot, activation still covers
+only that pilot; it does not establish membership for current work.
