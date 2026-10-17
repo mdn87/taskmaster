@@ -11,6 +11,11 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+.venv/
+.local/
+.worktrees/
+.Codex/handoff.md
+.Codex/handoff-history/
 
 # Local audit receipts
 .lugos-audit/

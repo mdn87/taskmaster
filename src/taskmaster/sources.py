@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import stat
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 
 from .canonical import sha256_hex
@@ -37,6 +38,7 @@ RECORD_BASENAMES = frozenset({
     "state.json",
 })
 SKIPPED_DIRS = frozenset({"credential-isolation", "child-output"})
+LEDGER_SUFFIXES = (".reservation.json", ".result.json", ".outcome.json")
 MANIFEST_SCHEMA = "taskmaster.corpus-manifest/v1"
 
 MAX_FOOTPRINT_ENTRIES = 20_000
@@ -59,17 +61,20 @@ class Footprint:
     dirs: tuple[str, ...]          # relative POSIX paths, sorted
     files: dict[str, str]          # relative POSIX path -> sha256
     data: dict[str, bytes]         # relative POSIX path -> bytes
+    skipped_dirs: tuple[str, ...] = ()  # never entered; unsafe for the owner's unrestricted rglob
 
     def signature(self) -> tuple:
-        return self.dirs, tuple(sorted(self.files.items()))
+        return self.dirs, tuple(sorted(self.files.items())), self.skipped_dirs
 
     def run_dirs(self, run_id: str) -> list[str]:
         return [d for d in self.dirs if d.rsplit("/", 1)[-1] == run_id]
 
     def records_in(self, run_dir: str) -> dict[str, str]:
-        """Direct-child record files of one run directory: basename -> relpath."""
+        """Run records and its owner ledger, keyed relative to the run directory."""
         prefix = run_dir + "/"
-        return {p[len(prefix):]: p for p in self.files if p.startswith(prefix) and "/" not in p[len(prefix):]}
+        return {p[len(prefix):]: p for p in self.files if p.startswith(prefix) and (
+            "/" not in p[len(prefix):] or
+            (p[len(prefix):].startswith("owner-attempts/") and p[len(prefix):].count("/") == 1))}
 
 
 def _is_link(st: os.stat_result) -> bool:
@@ -89,14 +94,20 @@ def footprint(root: Path) -> Footprint:
     dirs: list[str] = []
     files: dict[str, str] = {}
     data: dict[str, bytes] = {}
+    skipped: list[str] = []
     total = 0
+    discovered = 0
     stack = [(root, "")]
     while stack:
         current, rel = stack.pop()
         try:
-            entries = sorted(os.scandir(current), key=lambda e: e.name)
+            with os.scandir(current) as scan:
+                entries = sorted(islice(scan, MAX_FOOTPRINT_ENTRIES + 1), key=lambda e: e.name)
         except OSError:
             raise SourceError("required_source_failed", "run store directory is not readable") from None
+        discovered += len(entries)
+        if discovered > MAX_FOOTPRINT_ENTRIES:
+            raise SourceError("required_input_invalid", "run store footprint over bounds")
         for entry in entries:
             entry_rel = f"{rel}/{entry.name}" if rel else entry.name
             try:
@@ -107,10 +118,15 @@ def footprint(root: Path) -> Footprint:
                 raise SourceError("required_input_invalid", "run store contains a link or reparse point")
             if stat.S_ISDIR(est.st_mode):
                 if entry.name in SKIPPED_DIRS:
+                    skipped.append(entry_rel)
                     continue
                 dirs.append(entry_rel)
                 stack.append((Path(entry.path), entry_rel))
-            elif entry.name in RECORD_BASENAMES:
+            elif entry.name in RECORD_BASENAMES or (
+                current.name == "owner-attempts" and entry.name.endswith(LEDGER_SUFFIXES)
+            ):
+                if not stat.S_ISREG(est.st_mode):
+                    raise SourceError("required_input_invalid", "record is not a regular file")
                 if est.st_size > MAX_RECORD_BYTES:
                     raise SourceError("required_input_invalid", "record file over bounds")
                 try:
@@ -118,12 +134,14 @@ def footprint(root: Path) -> Footprint:
                         raw = handle.read(MAX_RECORD_BYTES + 1)
                 except OSError:
                     raise SourceError("required_source_failed", "record file is not readable") from None
+                if len(raw) > MAX_RECORD_BYTES:
+                    raise SourceError("required_input_invalid", "record file over bounds")
                 total += len(raw)
                 files[entry_rel] = sha256_hex(raw)
                 data[entry_rel] = raw
-            if len(dirs) + len(files) > MAX_FOOTPRINT_ENTRIES or total > MAX_FOOTPRINT_BYTES:
+            if len(dirs) + len(files) + len(skipped) > MAX_FOOTPRINT_ENTRIES or total > MAX_FOOTPRINT_BYTES:
                 raise SourceError("required_input_invalid", "run store footprint over bounds")
-    return Footprint(tuple(sorted(dirs)), files, data)
+    return Footprint(tuple(sorted(dirs)), files, data, tuple(sorted(skipped)))
 
 
 def read_small(path: Path, missing_code: str = "required_source_failed") -> bytes:

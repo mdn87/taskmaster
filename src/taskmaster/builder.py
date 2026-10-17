@@ -69,6 +69,15 @@ def _stem(basename: str) -> str:
     return basename.rsplit(".", 1)[0]
 
 
+def _record_identity(run_id: str, name: str) -> tuple[str, str]:
+    if name.startswith("owner-attempts/"):
+        # Slots repeat across runs. Hash a structured tuple instead of inventing
+        # a delimiter encoding or exporting the owner filesystem path.
+        kind = name.rsplit(".", 2)[-2]
+        return "owner-attempt-" + kind, sha256_hex(canonical([run_id, name]))
+    return _stem(name), run_id
+
+
 def _read_annotation(objective: Objective) -> tuple[bytes, list[str]]:
     try:
         raw = read_small(objective.annotation)
@@ -81,13 +90,15 @@ def _read_annotation(objective: Objective) -> tuple[bytes, list[str]]:
     run_ids = doc.get("run_ids") if isinstance(doc, dict) else None
     if not isinstance(doc, dict) or not isinstance(doc.get("objective_id"), str) \
             or set(doc) - {"objective_id", "run_ids", "interventions"} \
-            or not isinstance(run_ids, list) or not run_ids or len(run_ids) != len(set(run_ids)):
+            or not isinstance(run_ids, list) or not run_ids:
         raise _Failure("required_input_invalid", "operator", "invalid")
     try:
         for run_id in run_ids:
             validate_id(run_id, "run_id")
     except IdentityError:
         raise _Failure("required_input_invalid", "operator", "invalid") from None
+    if len(run_ids) != len(set(run_ids)):
+        raise _Failure("required_input_invalid", "operator", "invalid")
     if doc["objective_id"] != objective.id:
         raise _Failure("annotation_identity_mismatch", "operator", "invalid")
     return raw, run_ids
@@ -106,6 +117,8 @@ def _observe(config: Config, objective: Objective, run_ids: list[str]):
     """One owner observation bracketed by footprint reads. Returns (before, after, located, owner_doc, version)."""
     store = objective.run_store
     before = footprint(store.path)
+    if before.skipped_dirs:
+        raise _Failure("required_input_invalid", "autowork", "invalid")
     located: dict[str, str | None] = {}
     for run_id in run_ids:
         matches = before.run_dirs(run_id)
@@ -118,6 +131,8 @@ def _observe(config: Config, objective: Objective, run_ids: list[str]):
         version = autowork.check_version(config.autowork)
         owner_doc = autowork.outcome(config.autowork, store.path, objective.id, present)
     after = footprint(store.path)
+    if after.skipped_dirs:
+        raise _Failure("source_changed_during_read", "autowork", "changed")
     return before, after, located, owner_doc, version
 
 
@@ -137,7 +152,8 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
         records = {}
         for basename, rel in fp.records_in(run_dir).items():
             sha = fp.files[rel]
-            autowork_inputs[(_stem(basename), run_id)] = {"record_type": _stem(basename), "record_id": run_id,
+            record_type, record_id = _record_identity(run_id, basename)
+            autowork_inputs[(record_type, record_id)] = {"record_type": record_type, "record_id": record_id,
                                                           "raw_sha256": sha}
             records[basename] = (sha, fp.data[rel])
         return records
@@ -166,8 +182,9 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
             "acceptance_outcome": _token_or_none(acceptance.get("outcome")),
             "task_sha256": _hex_or_none(attempt.get("task_sha256")),
         }
-        evidence = [annotation_ev] + [_evidence("autowork", alias, _stem(name), run_id, "", records[name][0])
-                                      for name in EVIDENCE_RECORDS if name in records]
+        evidence = [annotation_ev] + [_evidence("autowork", alias, *_record_identity(run_id, name), "", raw[0])
+                                      for name, raw in records.items()
+                                      if name in EVIDENCE_RECORDS or name.startswith("owner-attempts/")]
         result = parse_record(records["result.json"][1]) if "result.json" in records else None
         recorded_objective = result.get("objective_id") if result else None
         if isinstance(recorded_objective, str) and recorded_objective != objective.id:
@@ -279,7 +296,10 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
 
 
 def _over_count_bounds(content: dict) -> bool:
-    return any(len(s["inputs"]) > schema.MAX_INPUTS_PER_SOURCE for s in content["sources"]) \
+    limits = {"refs": schema.MAX_REFS, "links": schema.MAX_LINKS, "gaps": schema.MAX_GAPS,
+              "sources": schema.MAX_SOURCES, "coverage": schema.MAX_COVERAGE}
+    return any(len(content[key]) > maximum for key, maximum in limits.items()) \
+        or any(len(s["inputs"]) > schema.MAX_INPUTS_PER_SOURCE for s in content["sources"]) \
         or any(len(l["evidence"]) > schema.MAX_EVIDENCE_PER_LINK for l in content["links"])
 
 
@@ -298,29 +318,33 @@ def attempt_objective(config: Config, objective: Objective, now: str) -> Attempt
                                      now if policy_state[0] == "ok" else None))
         return tuple(rows)
 
-    try:
-        annotation_raw, run_ids = _read_annotation(objective)
-    except _Failure as f:
-        return AttemptResult("failed", None, sources(operator=(f.health, (f.code,))))
-
     manifest_captured = None
     try:
-        policy_before = _read_policy(objective)
         for round_number in range(2):
+            annotation_raw, run_ids = _read_annotation(objective)
+            policy_before = _read_policy(objective)
+            manifest_before = load_manifest(store.manifest) if store.mode == "saved_snapshot" else None
             before, after, located, owner_doc, version = _observe(config, objective, run_ids)
-            if before.signature() == after.signature():
+            annotation_after, _ = _read_annotation(objective)
+            policy_after = _read_policy(objective)
+            manifest_after = load_manifest(store.manifest) if store.mode == "saved_snapshot" else None
+            annotation_changed = annotation_raw != annotation_after
+            required_changed = (before.signature() != after.signature() or annotation_changed
+                                or manifest_before != manifest_after)
+            if not required_changed and (policy_before == policy_after or round_number == 1):
                 break
             if round_number == 1:
-                raise _Failure("source_changed_during_read", "autowork", "changed")
+                raise _Failure("source_changed_during_read", "operator" if annotation_changed else "autowork", "changed")
         if store.mode == "saved_snapshot":
-            manifest_captured, manifest_files = load_manifest(store.manifest)
+            manifest_captured, manifest_files = manifest_after
             if manifest_files != after.files:
                 raise _Failure("required_input_invalid", "autowork", "invalid")
-        policy_after = _read_policy(objective)
     except SourceError as exc:
         return AttemptResult("failed", None, sources(autowork_state=("failed" if exc.code == "required_source_failed"
                                                                      else "invalid", (exc.code,))))
     except _Failure as f:
+        if f.source == "operator":
+            return AttemptResult("failed", None, sources(operator=(f.health, (f.code,))))
         return AttemptResult("failed", None, sources(autowork_state=(f.health, (f.code,))))
 
     autowork_time = now if store.mode == "live" else manifest_captured
@@ -337,7 +361,10 @@ def attempt_objective(config: Config, objective: Objective, now: str) -> Attempt
         return AttemptResult("failed", None, sources(autowork_state=(f.health, (f.code,))))
     if _over_count_bounds(content):
         return AttemptResult("failed", None, sources(autowork_state=("ok", ())), ("over_bounds",))
-    schema.validate_content(content, objective.namespace, objective.id)
+    try:
+        schema.validate_content(content, objective.namespace, objective.id)
+    except schema.SchemaError:
+        return AttemptResult("failed", None, sources(autowork_state=("invalid", ("required_input_invalid",))))
     return AttemptResult(status, content, sources(autowork_state=("ok", ()), policy_state=policy_row,
                                                   autowork_time=autowork_time))
 

@@ -2,9 +2,9 @@
  "schema": "taskmaster.batch2-cases/v1",
  "subject": "delivered morning-report helper: block splicing, verification and status lines",
  "plan_sections": ["7"],
- "status": "authored, not executed: Batch 2 must check the final delivered report artifact, not only the renderer",
+ "status": "Executed on Windows by first-release integration tests; see docs/fixtures.md for modules and limits.",
  "block_source": "fixtures/batch2/agreement/report.txt is the renderer output for agreement/export.json at --now 2026-10-17T12:00:00Z",
- "markers": "a fixed BEGIN/END pair chosen in Batch 2; the digest line covers the exact block bytes, excluding the markers and the digest line",
+ "markers": "<!-- BEGIN TASKMASTER V1 --> and <!-- END TASKMASTER V1 -->, each followed by LF; <!-- TASKMASTER SHA256 <hex> --> covers exact block bytes excluding framing.",
  "cases": [
   {"id": "rh-unconfigured", "setup": "Taskmaster not configured, empty inbox",
    "expect": {"report": "identical to today's helper output, including the early return", "renderer_invoked": false}},

@@ -2,7 +2,7 @@
  "schema": "taskmaster.batch2-cases/v1",
  "subject": "refresh publication, locking and whole-file reader handling",
  "plan_sections": ["6", "7", "8"],
- "status": "authored, not executed: Batch 2 must run each case against the real refresh command on Windows",
+ "status": "Executed on Windows by first-release integration tests; see docs/fixtures.md for modules and limits.",
  "cases": [
   {"id": "pub-first-refresh", "setup": "no export.json, no lock holder", "action": "refresh",
    "expect": {"exit": 0, "export": "new file, verify-export ok"}},
