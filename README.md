@@ -40,6 +40,7 @@ Use `src:.` outside Windows. `tests/test_corpus.py` runs the real `autowork` aga
 
 ## Documents
 
+- [Backlog](docs/backlog.md): queued follow-up features, including resumable session IDs on trails.
 - [Implementation plan](docs/implementation-plan.md): scope, contracts, batches, acceptance gates and approval boundaries.
 - [Read footprint](docs/read-footprint.md): permitted inputs, the pinned owner version and live versus saved sources.
 - [Fixtures](docs/fixtures.md): executed checks and platform limits.
