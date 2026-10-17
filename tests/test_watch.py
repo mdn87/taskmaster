@@ -98,11 +98,11 @@ class WatchTests(Workspace):
 
     def test_slash_correction_persists_and_auto_restores_detection(self):
         class Feed(BaseHTTPRequestHandler):
+            sessions = [{'runId': 'dias:codex-hook:test', 'projectIds': ['lane']}]
             def do_GET(self):
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(json.dumps({'schemaVersion': 1, 'sessions': [
-                    {'runId': 'dias:codex-hook:test', 'projectIds': ['lane']}]}).encode())
+                self.wfile.write(json.dumps({'schemaVersion': 1, 'sessions': self.sessions}).encode())
             def log_message(self, *_):
                 pass
         server = ThreadingHTTPServer(('127.0.0.1', 0), Feed)
@@ -123,6 +123,18 @@ class WatchTests(Workspace):
         result = execute(self.config_path, '/taskmaster auto --session dias:codex-hook:test')
         self.assertEqual(result['sessions'][0]['objective'], 'ops/obj-1')
         self.assertEqual(result['sessions'][0]['provenance'], 'detected')
+        saved = execute(self.config_path, '/taskmaster sessions --trail ops/obj-1')
+        self.assertEqual(saved['schema'], 'taskmaster.registry/v1')
+        self.assertEqual(len(saved['sessions']), 1)
+        self.assertIsNone(saved['sessions'][0]['session_id'])
+        self.assertEqual(len(saved['sessions'][0]['assignments']), 3)
+        self.assertEqual(json.loads((self.tmp / 'registry.json').read_text()), saved)
+        self.assertIn('resume ID unavailable', execute(self.config_path, '/taskmaster sessions --all --format report'))
+        Feed.sessions = []
+        historical = execute(self.config_path, '/taskmaster clear --session dias:codex-hook:test')
+        self.assertFalse(historical['sessions'][0]['active'])
+        self.assertIsNone(historical['sessions'][0]['objective'])
+        self.assertEqual(len(execute(self.config_path, '/taskmaster sessions --trail ops/obj-1')['sessions']), 1)
         with self.assertRaises(watch.WatchError):
             execute(self.config_path, '/taskmaster use ops/obj-1 --session nonexistent')
 
