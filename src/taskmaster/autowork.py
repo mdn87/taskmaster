@@ -10,6 +10,8 @@ import json
 import re
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 from .config import OwnerCommand
@@ -21,10 +23,57 @@ _VERSION = re.compile(r"version (\S+)")
 
 
 def _run(argv: list[str], timeout: int) -> subprocess.CompletedProcess:
+    """Drain both pipes concurrently, stopping at a hard per-pipe byte cap."""
     try:
-        return subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, check=False)
-    except (OSError, subprocess.TimeoutExpired):
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError:
         raise SourceError("required_source_failed", "owner command did not complete") from None
+    buffers = [bytearray(), bytearray()]
+    overflow = threading.Event()
+    read_failed = threading.Event()
+
+    def stop():
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    def drain(pipe, target):
+        try:
+            with pipe:
+                while True:
+                    raw = pipe.read1(min(65536, MAX_OWNER_OUTPUT - len(target) + 1))
+                    if not raw:
+                        return
+                    if len(target) + len(raw) > MAX_OWNER_OUTPUT:
+                        overflow.set()
+                        stop()
+                        return
+                    target.extend(raw)
+        except OSError:
+            read_failed.set()
+            stop()
+
+    deadline = time.monotonic() + timeout
+    readers = [threading.Thread(target=drain, args=(pipe, target), daemon=True)
+               for pipe, target in zip((proc.stdout, proc.stderr), buffers)]
+    for thread in readers:
+        thread.start()
+    try:
+        proc.wait(timeout=max(0, deadline - time.monotonic()))
+        for thread in readers:
+            thread.join(timeout=max(0, deadline - time.monotonic()))
+        if any(thread.is_alive() for thread in readers):
+            raise subprocess.TimeoutExpired(argv, timeout)
+    except subprocess.TimeoutExpired:
+        stop()
+        proc.wait()
+        raise SourceError("required_source_failed", "owner command did not complete") from None
+    if overflow.is_set():
+        raise SourceError("required_input_invalid", "owner output over bounds")
+    if read_failed.is_set():
+        raise SourceError("required_source_failed", "owner output could not be read")
+    return subprocess.CompletedProcess(argv, proc.returncode, bytes(buffers[0]), bytes(buffers[1]))
 
 
 def check_version(owner: OwnerCommand) -> str:

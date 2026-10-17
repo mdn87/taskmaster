@@ -1,8 +1,8 @@
-"""Command line: build, show, verify-export (plan section 7).
+"""Command line: refresh, build, show, verify-export (plan section 7).
 
 Exit codes: 0 ok, 2 config/arguments, 3 export or objective missing,
 4 invalid/unsupported export, 5 an objective failed, 8 export unreadable.
-Codes 6 (writer busy) and 7 (publication failed) belong to Batch 2 `refresh`.
+Codes 6 (writer busy) and 7 (publication failed) describe atomic refresh errors.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import builder, config as config_mod, export, readmodel, report, timefmt
+from . import builder, config as config_mod, export, publication, readmodel, report, timefmt
 
 EXIT_OK, EXIT_CONFIG, EXIT_MISSING, EXIT_INVALID, EXIT_OBJECTIVE_FAILED = 0, 2, 3, 4, 5
 
@@ -62,6 +62,21 @@ def cmd_show(args) -> int:
     return EXIT_OK
 
 
+def cmd_refresh(args) -> int:
+    cfg = config_mod.load(args.config)
+    now = _now(args.now)
+    doc = publication.refresh(cfg, Path(args.export), now,
+                              recover_invalid_export=args.recover_invalid_export)
+    failed = [e for e in doc["entries"] if e["observation"]["attempt_status"] == "failed"]
+    _write(_json_bytes({"published": True, "snapshot_id": doc["snapshot_id"],
+                        "published_at": doc["published_at"], "entries": len(doc["entries"]),
+                        "failed_objectives": len(failed)}))
+    for entry in failed:
+        _err(f"objective {entry['namespace']}/{entry['id']} failed: "
+             f"{' '.join(entry['observation']['error_codes'])}")
+    return EXIT_OBJECTIVE_FAILED if failed else EXIT_OK
+
+
 def cmd_verify(args) -> int:
     doc, data = export.load(Path(args.export))
     _write(_json_bytes({"ok": True, "sha256": export.file_sha256(data), "snapshot_id": doc["snapshot_id"],
@@ -72,6 +87,13 @@ def cmd_verify(args) -> int:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="taskmaster", description="Read-only objective trail index.")
     sub = p.add_subparsers(dest="command", required=True)
+
+    r = sub.add_parser("refresh", help="observe and atomically publish the configured objectives")
+    r.add_argument("--config", required=True)
+    r.add_argument("--export", required=True)
+    r.add_argument("--now")
+    r.add_argument("--recover-invalid-export", action="store_true")
+    r.set_defaults(func=cmd_refresh)
 
     b = sub.add_parser("build", help="observe configured objectives and write an export to stdout")
     b.add_argument("--config", required=True)
@@ -112,6 +134,13 @@ def main(argv: list[str] | None = None) -> int:
     except export.ExportError as exc:
         _err(str(exc))
         return exc.exit_code
+    except publication.PublicationError as exc:
+        _err(str(exc))
+        return exc.exit_code
+    except OSError as exc:
+        # Configuration reads must never leak a traceback or local path.
+        _err(f"config: {type(exc).__name__}")
+        return EXIT_CONFIG
 
 
 if __name__ == "__main__":

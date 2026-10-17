@@ -17,7 +17,8 @@ from .strictjson import StrictJSONError, loads
 class ExportError(Exception):
     """A whole-file failure with a typed code and a CLI exit status."""
 
-    EXIT = {"export_missing": 3, "invalid_export": 4, "unsupported_export": 4, "export_unreadable": 8}
+    EXIT = {"export_missing": 3, "invalid_export": 4, "unsupported_export": 4,
+            "existing_export_invalid": 4, "export_unreadable": 8}
 
     def __init__(self, code: str, reason: str):
         super().__init__(f"{code}: {reason}")
@@ -42,11 +43,8 @@ def assemble(entries: list[dict], published_at: str, max_age_seconds: int) -> by
     }
     data = canonical(doc)
     verify(data)  # the writer runs the same acceptance rules as every reader
-    for entry in ordered:
-        if entry["content_json"] is not None:
-            content = schema.parse_content(entry)
-            if schema.assert_canonical_content(content) != entry["content_json"]:
-                raise ExportError("invalid_export", "writer produced non-canonical content")
+    # Newly built content is canonicalized by merge. Retained content must keep
+    # its exact accepted bytes, including non-canonical but hash-valid strings.
     return data
 
 
@@ -60,7 +58,7 @@ def verify(data: bytes) -> dict:
     if not isinstance(doc, dict):
         raise ExportError("invalid_export", "root is not an object")
     version = doc.get("schema_version")
-    if doc.get("schema") != schema.EXPORT_SCHEMA or version != 1:
+    if doc.get("schema") != schema.EXPORT_SCHEMA or type(version) is not int or version != 1:
         newer = isinstance(version, int) and not isinstance(version, bool) and version > 1
         prefixed = isinstance(doc.get("schema"), str) and doc["schema"].startswith("taskmaster.export/")
         if newer or (prefixed and doc.get("schema") != schema.EXPORT_SCHEMA):

@@ -6,25 +6,26 @@ It doesn't schedule, admit, approve or run work, and it doesn't become a second 
 
 ## Status
 
-Batch 1 of the [implementation plan](docs/implementation-plan.md) (revision 2.2) is implemented. That covers the strict schemas, canonical hashing, the Autowork source adapter, the pure entry-merge function, the read model, the report renderer and the `build`, `show` and `verify-export` commands. The Batch 1 fixtures pass on Python 3.11 and 3.14 on Windows. See [fixtures](docs/fixtures.md) for what each test proves.
+The [implementation plan](docs/implementation-plan.md) (revision 2.2) defines one first release for agents, the morning report and Dias together. The Python core includes strict schemas, hashing, the Autowork source adapter, per-objective retention, the read model and report renderer. Atomic `refresh` and verified morning-report delivery extend the original Batch 1 work. See [fixtures](docs/fixtures.md) for executed checks and remaining platform limits.
 
-Not done yet:
-
-- Batch 2: atomic `refresh` publication with OS locking, the morning-report helper and Dias integration. The first usable release needs agents, the morning report and Dias together.
-- Batch 2 fixtures are authored in `fixtures/batch2/` but haven't been run against any consumer.
-- Nothing is deployed or scheduled.
+Taskmaster does not deploy or schedule itself. Source configuration and the export path are explicit. A saved corpus keeps its original capture time; unknown age remains visibly stale.
 
 ## Use
 
 ```
-pip install -e .
-taskmaster build --config taskmaster.toml --now 2026-10-17T12:00:00Z > export.json
+py -3.11 -m venv .venv
+.venv\Scripts\python -m pip install -e .
+.venv\Scripts\taskmaster refresh --config taskmaster.toml --export export.json
 taskmaster show --export export.json --all --format report
 taskmaster show --export export.json --namespace NS --id ID --json
 taskmaster verify-export --export export.json
 ```
 
-`build` writes the export to stdout and exits 5 if any objective failed. The export is still written in that case. Exit codes are listed in `src/taskmaster/cli.py` and plan section 7.
+The `show` and `verify-export` commands use the same environment's `taskmaster` executable (activate the environment or use its full relative path). On POSIX use `python3 -m venv .venv` and `.venv/bin/`.
+
+`refresh` holds an OS writer lock, reads the prior export, and atomically replaces it after validation. A failed objective retains its prior evidence when configuration still matches; other objectives can advance. Exit 5 means the export was published with at least one failed objective. Exit 6 means another writer owns the lock; exit 7 means publication failed. Invalid prior data stops refresh with exit 4; explicit `--recover-invalid-export` preserves a verified exact copy before rebuilding. Unsupported newer schemas are never overwritten. Detailed failures stay beside the export in `.taskmaster-diagnostics/`.
+
+`build` remains an in-memory diagnostic command that writes the export to stdout; use `refresh` for publication. `show` never refreshes owner evidence. See [configuration and consumers](docs/usage.md) for setup and the optional report/Dias integrations.
 
 ## Tests
 
@@ -37,8 +38,8 @@ Use `src:.` outside Windows. `tests/test_corpus.py` runs the real `autowork` aga
 ## Documents
 
 - [Implementation plan](docs/implementation-plan.md): scope, contracts, batches, acceptance gates and approval boundaries.
-- [Read footprint](docs/read-footprint.md): exactly what Batch 1 reads, the pinned owner version and live versus saved sources.
-- [Fixtures](docs/fixtures.md): what is executed and passing, and what is authored only.
+- [Read footprint](docs/read-footprint.md): permitted inputs, the pinned owner version and live versus saved sources.
+- [Fixtures](docs/fixtures.md): executed checks and platform limits.
 - [Evidence review](docs/evidence-review.md): source locations checked during planning and remaining uncertainties.
 
 The plan cites review reports and Phase 1 evidence under `reviews/` and `evidence/`. Those are local planning records and are not published in this repository.
