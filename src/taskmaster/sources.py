@@ -36,6 +36,7 @@ RECORD_BASENAMES = frozenset({
     "result.json",
     "route-attempts.jsonl",
     "state.json",
+    "subject-manifest.json",
 })
 SKIPPED_DIRS = frozenset({"credential-isolation", "child-output"})
 LEDGER_SUFFIXES = (".reservation.json", ".result.json", ".outcome.json")

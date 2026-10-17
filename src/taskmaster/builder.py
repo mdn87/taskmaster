@@ -7,6 +7,7 @@ bindings stay gaps; nothing is inferred from timing or proximity.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 
 from . import autowork, schema
 from .canonical import canonical, sha256_hex
@@ -18,7 +19,47 @@ from .strictjson import StrictJSONError, loads
 
 ANNOTATION_RECORD = "objective-annotation"
 POLICY_RECORD = "policy"
-EVIDENCE_RECORDS = ("request-summary.json", "result.json", "state.json")
+EVIDENCE_RECORDS = ("request-summary.json", "result.json", "state.json", "subject-manifest.json")
+
+
+def _verify_review_manifest(records, result, run_id):
+    """Check the owner's v1 subject digest without claiming a dispatch outcome.
+
+    Autowork hashes the captured file metadata without its derived roles or
+    reviewer metadata (cross_review_subject._manifest_payload, owner 0.1.0).
+    The filenames remain private; only the raw manifest digest is exported.
+    """
+    try:
+        manifest = parse_record(records['subject-manifest.json'][1])
+        if (not isinstance(manifest, dict) or type(manifest.get('version')) is not int
+                or manifest['version'] != 1 or result.get('run_id') != run_id):
+            raise ValueError('unsupported review manifest')
+        base = {k: manifest[k] for k in ('kind', 'anchor_kind', 'anchor_paths',
+                                        'target_selectors', 'exclusions')}
+        if base['kind'] not in ('plan', 'implementation'):
+            raise ValueError('unsupported review kind')
+        for key in ('anchor_paths', 'target_selectors', 'exclusions'):
+            if not isinstance(base[key], list) or not all(isinstance(v, str) for v in base[key]):
+                raise ValueError('invalid subject paths')
+        if not isinstance(base['anchor_kind'], str) or not isinstance(manifest['files'], list):
+            raise ValueError('invalid subject metadata')
+        base['files'] = []
+        seen = set()
+        for row in manifest['files']:
+            value = {k: row[k] for k in ('path', 'byte_count', 'sha256', 'selectors')}
+            if (not isinstance(value['path'], str) or not value['path'] or value['path'] in seen
+                    or type(value['byte_count']) is not int or value['byte_count'] < 0
+                    or not is_sha256_hex(value['sha256']) or not isinstance(value['selectors'], list)
+                    or not all(isinstance(s, str) for s in value['selectors'])):
+                raise ValueError('invalid captured file')
+            seen.add(value['path'])
+            base['files'].append(value)
+        digest = sha256_hex(json.dumps(base, sort_keys=True, ensure_ascii=False,
+                                       allow_nan=False, separators=(',', ':')).encode('utf-8'))
+        if digest != manifest.get('manifest_sha256') or digest != result.get('manifest_sha256'):
+            raise ValueError('review subject digest mismatch')
+    except (KeyError, TypeError, ValueError):
+        raise _Failure('required_input_invalid', 'autowork', 'invalid') from None
 
 
 def _token_or_none(value) -> str | None:
@@ -147,6 +188,7 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
     policy_sha = sha256_hex(policy_raw) if policy_raw is not None else None
 
     autowork_inputs: dict[tuple[str, str], dict] = {}
+    has_review = False
 
     def add_inputs(run_dir: str, run_id: str) -> dict[str, tuple[str, bytes]]:
         records = {}
@@ -186,6 +228,12 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
                                       for name, raw in records.items()
                                       if name in EVIDENCE_RECORDS or name.startswith("owner-attempts/")]
         result = parse_record(records["result.json"][1]) if "result.json" in records else None
+        if result and result.get('command_kind') == 'cross-review':
+            _verify_review_manifest(records, result, run_id)
+            has_review = True
+            # A completed review is not a completed dispatch. The current owner
+            # outcome reader has no cross-review delivery/acceptance contract.
+            asserted = {}
         recorded_objective = result.get("objective_id") if result else None
         if isinstance(recorded_objective, str) and recorded_objective != objective.id:
             trail.link("has_run", obj_ref, run_ref, "conflict", "operator_annotated", asserted, evidence)
@@ -277,7 +325,7 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
     sources.sort(key=lambda s: schema.sort_key([s["owner"], s["store_id"]]))
 
     coverage_status = {adapter: "unsupported" for adapter in schema.COVERAGE_ADAPTERS}
-    coverage_status["autowork.outcome"] = "checked"
+    coverage_status["autowork.outcome"] = "unsupported" if has_review else "checked"
     if objective.chips:
         coverage_status["dias.chip_annotation"] = "checked"
     if objective.policy is not None:

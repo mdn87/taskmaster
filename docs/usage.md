@@ -111,3 +111,23 @@ explicit `{objective_id, run_ids}` annotations with a known run store. An outcom
 report mentioning runs, a Dias chip title, and a test fixture are not new objective
 annotations. If discovery finds only the historical pilot, activation still covers
 only that pilot; it does not establish membership for current work.
+
+When creating annotations from verified run records, check the exact owner
+workspace or subject anchor against the intended objective. Keep a private
+provenance record with the source path, JSON pointer and raw file digest for each
+membership. These are operator annotations, not owner-recorded objective bindings;
+the latter remain typed gaps when absent. Similar titles, task hashes or nearby
+timestamps alone do not establish membership.
+
+Autowork cross-review runs can establish membership after their subject manifest
+and result binding are verified. Their review success is not exported as dispatch
+delivery or implementation acceptance. Dispatch outcome coverage remains
+unsupported for objectives containing these review runs.
+
+For a private owner store, explicitly import only the allowlisted records into a
+saved corpus and retain their original bytes and source digests. Save import time
+separately from evidence capture time. An unknown capture time remains null even
+after a successful import. A saved corpus tracks only its annotated, captured
+runs: discovering new runs, verifying membership and recapturing changed records
+are separate operator actions. Refresh republishes that corpus; it does not watch
+the original owner store.

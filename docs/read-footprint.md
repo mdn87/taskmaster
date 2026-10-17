@@ -20,7 +20,7 @@ Taskmaster never writes into any of these locations. The temporary annotation pa
 `autowork campaign outcome` finds each run with `rglob(run_id)` over the entire runs root. For attestation cache hits it also scans every `capability-attestation-usage.json` under the root. That means a write anywhere in the store can change the owner's answer, not just a write inside a selected run. The footprint covers:
 
 - every directory under the root, at any depth, except that `credential-isolation/` and `child-output/` are recorded as excluded directories and never entered;
-- every file whose basename is one of the 16 owner record names (`RECORD_BASENAMES` in `sources.py`), hashed with SHA-256;
+- every file whose basename is one of the 17 owner record names (`RECORD_BASENAMES` in `sources.py`), including `subject-manifest.json`, hashed with SHA-256;
 - each direct `*.reservation.json`, `*.result.json`, and `*.outcome.json` file in an `owner-attempts/` ledger. The owner reads these records and uses their statuses to determine launch. They participate in the footprint, saved manifests, source input digests, and each selected run's link evidence. Their exported record types are `owner-attempt-reservation`, `owner-attempt-result`, and `owner-attempt-outcome`; record identity is SHA-256 of the canonical `[run_id, run_relative_record_name]` tuple, keeping repeated slot names distinct without exposing paths.
 
 The footprint, annotation bytes, and saved manifest values are read before and after the owner call. If required inputs differ, the attempt retries once. A second difference fails the objective with `source_changed_during_read`, retaining its prior content under the same configuration binding. Optional policy changes also retry once; continuing optional churn publishes partial coverage when required sources are stable. This catches ordinary concurrent writes, not an adversarial writer timing changes around the reads.
@@ -42,6 +42,14 @@ For such stores the pilot must explicitly configure a sanitized saved corpus tha
 | Output `objective_id` and attempt `run_id` set | must equal the annotation | `required_input_invalid` |
 
 Only allowlisted owner fields enter trail content: `status` (as `dispatch_status`), `launch`, `last_proven_stage`, `delivered`, `acceptance.outcome` and `task_sha256`, plus the run ids named by `probe.linked_run_ids`. Their records count as inputs.
+
+Cross-review runs are a membership-only exception. Taskmaster verifies the v1
+subject manifest using the owner's canonical subject digest and requires the
+result to bind that exact manifest and run id. The raw manifest hash enters link
+evidence, while subject paths remain private. Cross-review links contain no
+dispatch assertions: a successful review does not prove delivery or acceptance
+of an implementation. An objective containing such a run reports
+`autowork.outcome: unsupported`; its explicit membership remains resolved.
 
 ## Live and saved sources
 
