@@ -16,7 +16,7 @@ import time
 import urllib.request
 import uuid
 
-from . import builder, config, publication, readmodel, report, sources, timefmt
+from . import builder, config, publication, readmodel, report, sources, timefmt, registry as session_registry
 from .canonical import canonical, objective_key, sha256_hex
 from .identity import validate_id
 
@@ -290,7 +290,7 @@ def session_bindings(sessions, rules, overrides):
 def project_sessions(settings, now):
     state = Path(settings['state_dir'])
     registry = read_json(state / 'registrations.json', {'overrides': {}, 'history': []})
-    rows, status = [], 'unconfigured'
+    rows, status, feed_sessions = [], 'unconfigured', []
     if settings.get('dias_url'):
         try:
             with urllib.request.urlopen(settings['dias_url'] + '/api/v1/trails/context', timeout=3) as response:
@@ -300,14 +300,41 @@ def project_sessions(settings, now):
             feed = owner_json(raw)
             if feed.get('schemaVersion') != 1 or not isinstance(feed.get('sessions'), list):
                 raise WatchError('invalid session feed')
-            rows = session_bindings(feed['sessions'], settings['rules'], registry['overrides'])
+            feed_sessions = feed['sessions']
+            if len(feed_sessions) > 512 or any(not isinstance(row, dict) for row in feed_sessions):
+                raise WatchError('invalid session feed')
+            ids = [row.get('runId') for row in feed_sessions]
+            if any(not isinstance(i, str) for i in ids) or len(set(ids)) != len(ids):
+                raise WatchError('duplicate or invalid session identity')
+            rows = session_bindings(feed_sessions, settings['rules'], registry['overrides'])
             status = 'current'
         except (OSError, ValueError):
             status = 'unavailable'
+            rows, feed_sessions = [], []
     payload = {'schema': 'taskmaster.sessions/v1', 'evaluated_at': now,
                'max_age_seconds': 2 * settings['interval_seconds'] + 10, 'status': status, 'sessions': rows}
+    history_path = state / 'session-registry.json'
+    try:
+        previous = read_session_registry(history_path)
+        history = session_registry.reconcile(previous, rows, feed_sessions, registry['overrides'], now, status, payload['max_age_seconds'])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise WatchError('session registry update failed; previous history retained') from exc
+    atomic_json(history_path, history)
+    atomic_json(Path(settings['export']).parent / 'registry.json', history)
+    atomic_bytes(Path(settings['export']).parent / 'session-registry-report.md', session_registry.render(history).encode('utf-8'))
     atomic_json(Path(settings['export']).parent / 'sessions.json', payload)
     return payload
+
+
+def read_session_registry(path):
+    try:
+        with Path(path).open('rb') as stream:
+            raw = stream.read(session_registry.MAX_BYTES + 1)
+    except FileNotFoundError:
+        return None
+    if len(raw) > session_registry.MAX_BYTES:
+        raise WatchError('session registry exceeds size limit')
+    return session_registry.validate(owner_json(raw))
 
 
 def tick(config_path, settings_path, *, now=None, owner_cache=None, recover_invalid_export=False):

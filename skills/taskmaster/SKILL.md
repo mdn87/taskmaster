@@ -17,6 +17,8 @@ The supported commands are:
 - `/taskmaster status`: watcher heartbeat, evidence failures and quarantined runs.
 - `/taskmaster trails`: registered objectives and their exact discovery scopes.
 - `/taskmaster sessions`: live Dias session assignments, detection candidates and provenance.
+- `/taskmaster sessions --all`: persistent registrations, including inactive sessions and verified provider resume IDs.
+- `/taskmaster sessions --trail NAMESPACE/ID [--format report]`: current and historical sessions registered to one trail.
 - `/taskmaster use NAMESPACE/ID`: select the current session's trail explicitly.
 - `/taskmaster clear`: keep the current session unassigned.
 - `/taskmaster auto`: remove the override and restore automatic detection.
@@ -25,8 +27,11 @@ The supported commands are:
 `use`, `clear` and `auto` also accept `--session DIAS_RUN_ID` to target the exact
 card shown by `sessions`. Without it the CLI uses a provider-supplied session
 identity, hashed using Dias's convention. If that identity is absent or is not
-reported by live Dias, list sessions and ask which exact card the user means.
+known in the registry, list sessions and ask which exact card the user means.
+`use` and `clear` accept historical card IDs; `auto` requires live detection.
 Never substitute the newest card, a matching title or another chat's identity.
+Only return a resume ID recorded in the registry. The hashed Dias card ID is not
+a resume ID. Never infer a missing ID or automatically launch a resumed session.
 
 After a correction, show the resulting objective and provenance from the command
 result. A `busy` response means the watcher owns the cycle lock: retry once after

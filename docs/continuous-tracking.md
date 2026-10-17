@@ -95,7 +95,8 @@ or prove execution membership.
 
 Use `--session DIAS_RUN_ID` when targeting another specific card. Otherwise the CLI
 uses `DIAS_RUN_ID`, or hashes the provider's `CODEX_THREAD_ID` / `CLAUDE_SESSION_ID`.
-It refuses a session absent from the live Dias feed. `use` persists an operator
+It refuses unknown sessions. `use` and `clear` also accept a historical registered
+card; `auto` requires a live session to obtain current detection. `use` persists an operator
 override; `clear` persists an explicit unassigned choice; `auto` removes it.
 Overrides survive watcher and host restarts and outrank later detection.
 Local registration history records changes. The sidecar `sessions.json` contains
@@ -111,3 +112,43 @@ taskmaster slash --config taskmaster.toml "/taskmaster sessions"
 The reusable skill is `skills/taskmaster/SKILL.md`. The installed workspace
 copies provide Codex skill discovery and Claude's `/taskmaster` command. A client
 may need to reload its skill/command list after installation.
+
+## Resumable session registry
+
+Each trail retains the sessions registered to it, including sessions no longer
+present in Dias. The lifecycle adapter supplies the provider and original
+session ID through the loopback-only context route. Both Dias and Taskmaster
+verify that hashing the original ID produces the exact Dias card ID. A card hash
+is never presented as a resume ID. Older cards without that metadata explicitly
+show an unavailable ID until a new lifecycle event supplies it.
+
+Dias's selected trail lists current and historical registrations and offers a
+Copy session ID button for verified IDs. Copying does not start a session. Use
+the copied ID with the appropriate provider's resume workflow. A resumed session
+with the same identity updates its existing registry entry.
+
+```text
+/taskmaster sessions --all
+/taskmaster sessions --trail cirra/coordination-layer
+/taskmaster sessions --trail cirra/coordination-layer --format report
+```
+
+The watch state retains `session-registry.json`, and publishes `registry.json`
+and `session-registry-report.md` beside the shared export. The registry is a
+separate context projection: neither it nor its resume IDs enter the hashed
+execution evidence export or the existing morning-report evidence block. The
+companion report exposes the same local session history as Dias and the CLI.
+Raw resume IDs are available only on the loopback Dias listener, never the
+Surface listener. No transcripts are inspected.
+
+Registration history records provider, resume ID, first/last observation and
+each objective/provenance assignment period. Moving or clearing a session closes
+the prior period without erasing it. Unavailable feeds retain history and report
+their unavailable status; a session absent from a successful feed is inactive.
+An inactive session can still be resumed and can keep its current registration.
+
+Retention is explicit: there is no automatic eviction. The registry permits
+4,096 sessions, 128 assignment periods per session and 4 MiB of serialized data.
+Reaching a limit or detecting corrupt history fails the update and preserves the
+previous registry. Watcher status/last-error and registry freshness expose the
+failure. No database migration or schema change to the execution export is needed.

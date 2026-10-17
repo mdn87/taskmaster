@@ -107,6 +107,9 @@ def cmd_watch(args) -> int:
 def cmd_slash(args) -> int:
     from .commands import execute
     value = execute(args.config, args.text)
+    if isinstance(value, str):
+        _write(value.encode('utf-8'))
+        return EXIT_OK
     _write(_json_bytes(value))
     return EXIT_OBJECTIVE_FAILED if value.get('failed_objectives', 0) else EXIT_OK
 

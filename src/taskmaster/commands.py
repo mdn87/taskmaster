@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import shlex
 
-from . import config, publication, timefmt, watch
+from . import config, publication, timefmt, watch, registry as session_registry
 
 
 def current_session():
@@ -28,6 +28,7 @@ def execute(config_path, text):
         tokens.pop(0)
     if not tokens or tokens == ['help']:
         return {'commands': ['/taskmaster status', '/taskmaster trails', '/taskmaster sessions',
+                             '/taskmaster sessions --all [--trail NAMESPACE/ID] [--format report]',
                              '/taskmaster use NAMESPACE/ID [--session DIAS_RUN_ID]',
                              '/taskmaster clear [--session DIAS_RUN_ID]',
                              '/taskmaster auto [--session DIAS_RUN_ID]', '/taskmaster refresh']}
@@ -54,8 +55,27 @@ def execute(config_path, text):
         return value
     state.mkdir(parents=True, exist_ok=True)
     with publication.writer_lock(state / 'registrations'):
-        if command == 'sessions' and not tokens:
-            return watch.project_sessions(settings, timefmt.now())
+        if command == 'sessions':
+            all_sessions, trail, output_format = False, None, 'json'
+            while tokens:
+                option = tokens.pop(0)
+                if option == '--all':
+                    all_sessions = True
+                elif option == '--trail' and tokens:
+                    trail, all_sessions = tokens.pop(0), True
+                    if trail not in {r['namespace'] + '/' + r['id'] for r in settings['rules']}:
+                        raise watch.WatchError('unknown trail; use /taskmaster trails')
+                elif option == '--format' and tokens and tokens[0] == 'report':
+                    output_format, all_sessions = tokens.pop(0), True
+                else:
+                    raise watch.WatchError('expected sessions [--all] [--trail NAMESPACE/ID] [--format report]')
+            current = watch.project_sessions(settings, timefmt.now())
+            if not all_sessions:
+                return current
+            history = watch.read_session_registry(state / 'session-registry.json')
+            if trail:
+                history = session_registry.for_trail(history, trail)
+            return session_registry.render(history) if output_format == 'report' else history
         if command not in ('use', 'clear', 'auto'):
             raise watch.WatchError('unknown command; use /taskmaster help')
         target = tokens.pop(0) if command == 'use' and tokens else None
@@ -70,8 +90,11 @@ def execute(config_path, text):
         if not re.fullmatch('[A-Za-z0-9._:-]{1,200}', session):
             raise watch.WatchError('invalid session id')
         before = watch.project_sessions(settings, timefmt.now())
-        if before['status'] != 'current' or not any(row['run_id'] == session for row in before['sessions']):
-            raise watch.WatchError('session is not reported by live Dias; use /taskmaster sessions')
+        live = before['status'] == 'current' and any(row['run_id'] == session for row in before['sessions'])
+        history = watch.read_session_registry(state / 'session-registry.json')
+        known = history is not None and any(row['run_id'] == session for row in history['sessions'])
+        if not live and (not known or command == 'auto'):
+            raise watch.WatchError('automatic detection needs a live session; use/clear also accept registered historical sessions')
         path = state / 'registrations.json'
         registry = watch.read_json(path, {'overrides': {}, 'history': []})
         prior = registry['overrides'].get(session, 'auto')
@@ -84,4 +107,8 @@ def execute(config_path, text):
         registry['history'] = (registry['history'] + [{'at': timefmt.now(), 'run_id': session,
                                                      'before': prior, 'after': 'auto' if command == 'auto' else target}])[-512:]
         watch.atomic_json(path, registry)
-        return watch.project_sessions(settings, timefmt.now())
+        result = watch.project_sessions(settings, timefmt.now())
+        if not live:
+            history = watch.read_session_registry(state / 'session-registry.json')
+            return {**history, 'sessions': [row for row in history['sessions'] if row['run_id'] == session]}
+        return result

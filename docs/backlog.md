@@ -2,7 +2,7 @@
 
 ## Show registered resumable sessions on each trail
 
-Requested 2026-10-17. Queued for later implementation.
+Requested 2026-10-17. Implemented; see [continuous tracking](continuous-tracking.md#resumable-session-registry).
 
 When a new agent session is detected and assigned to a Taskmaster work trail,
 retain that registration and list it on the trail. The user should be able to
