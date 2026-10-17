@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import builder, config as config_mod, export, publication, readmodel, report, timefmt
+from . import builder, config as config_mod, export, publication, readmodel, report, timefmt, watch
 
 EXIT_OK, EXIT_CONFIG, EXIT_MISSING, EXIT_INVALID, EXIT_OBJECTIVE_FAILED = 0, 2, 3, 4, 5
 
@@ -65,6 +65,13 @@ def cmd_show(args) -> int:
 def cmd_refresh(args) -> int:
     cfg = config_mod.load(args.config)
     now = _now(args.now)
+    if cfg.watch is not None:
+        settings = watch.load_settings(cfg.watch, cfg)
+        if Path(args.export).resolve() != Path(settings['export']).resolve():
+            raise config_mod.ConfigError('watch refresh must use its configured shared export')
+        result = watch.tick(args.config, cfg.watch, now=now, recover_invalid_export=args.recover_invalid_export)
+        _write(_json_bytes(result))
+        return EXIT_OBJECTIVE_FAILED if result['failed_objectives'] else EXIT_OK
     doc = publication.refresh(cfg, Path(args.export), now,
                               recover_invalid_export=args.recover_invalid_export)
     failed = [e for e in doc["entries"] if e["observation"]["attempt_status"] == "failed"]
@@ -84,9 +91,40 @@ def cmd_verify(args) -> int:
     return EXIT_OK
 
 
+def cmd_watch(args) -> int:
+    cfg = config_mod.load(args.config)
+    settings = args.settings or cfg.watch
+    if settings is None:
+        raise config_mod.ConfigError('watch settings are not configured')
+    if args.once:
+        result = watch.tick(args.config, settings)
+        _write(_json_bytes(result))
+        return EXIT_OBJECTIVE_FAILED if result['failed_objectives'] else EXIT_OK
+    watch.serve(args.config, settings)
+    return EXIT_OK
+
+
+def cmd_slash(args) -> int:
+    from .commands import execute
+    value = execute(args.config, args.text)
+    _write(_json_bytes(value))
+    return EXIT_OBJECTIVE_FAILED if value.get('failed_objectives', 0) else EXIT_OK
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="taskmaster", description="Read-only objective trail index.")
     sub = p.add_subparsers(dest="command", required=True)
+
+    w = sub.add_parser('watch', help='continuously capture verified runs and refresh consumers')
+    w.add_argument('--config', required=True)
+    w.add_argument('--settings')
+    w.add_argument('--once', action='store_true')
+    w.set_defaults(func=cmd_watch)
+
+    slash = sub.add_parser('slash', help='run a /taskmaster status, sessions, use, clear, auto or refresh command')
+    slash.add_argument('--config', required=True)
+    slash.add_argument('text')
+    slash.set_defaults(func=cmd_slash)
 
     r = sub.add_parser("refresh", help="observe and atomically publish the configured objectives")
     r.add_argument("--config", required=True)
@@ -128,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         p.error("--all excludes --id")
     try:
         return args.func(args)
-    except config_mod.ConfigError as exc:
+    except (config_mod.ConfigError, watch.WatchError) as exc:
         _err(f"config: {exc}")
         return EXIT_CONFIG
     except export.ExportError as exc:

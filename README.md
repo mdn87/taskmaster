@@ -8,7 +8,10 @@ It doesn't schedule, admit, approve or run work, and it doesn't become a second 
 
 The [implementation plan](docs/implementation-plan.md) (revision 2.2) defines one first release for agents, the morning report and Dias together. The Python core includes strict schemas, hashing, the Autowork source adapter, per-objective retention, the read model and report renderer. Atomic `refresh` and verified morning-report delivery extend the original Batch 1 work. See [fixtures](docs/fixtures.md) for executed checks and remaining platform limits.
 
-Taskmaster does not deploy or schedule itself. Source configuration and the export path are explicit. A saved corpus keeps its original capture time; unknown age remains visibly stale.
+Source configuration and the export path are explicit. The optional local watcher
+continuously captures verified runs and refreshes all consumers; see
+[continuous tracking and session commands](docs/continuous-tracking.md). A saved
+corpus keeps its original capture time; unknown age remains visibly stale.
 
 ## Use
 
