@@ -1,0 +1,152 @@
+taskmaster trail report v1
+evaluated_at: 2026-10-17T12:00:00Z
+snapshot_id: 13c4de442a88b51ee33fad638d8e8c39fa5bc39057d32238dae2ee58327a13c8
+published_at: 2026-10-17T12:10:00Z
+max_age_seconds: 3600
+objectives: 12
+objective: namespace=agree id=conflict
+  objective_key: 1fa2d0cdbb00dcf085fc79c1205bcf4c2314265ca309306ac83c3288fbf38baf
+  trail_sha256: d103299ba628ccbcb75fcb7f22d65281c2ca9b7629a672c3ac92c14427d994cc
+  attempt: ok stale=no partial=no never_successful=no clock_skew=no
+  last_success_at: 2026-10-17T11:50:00Z age_seconds: 600
+  last_attempt_at: 2026-10-17T11:50:00Z
+  status_codes: none
+  source: autowork/runs mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  links: candidate=0 conflict=1 missing=0 resolved=0 unavailable=0 unsupported=0
+  gaps: membership_conflict=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=saved-known-capture
+  objective_key: 1fb5993232f8fbf8b18ab58c95c78f168bf069640042ad0f7c91fab5a08f820a
+  trail_sha256: 38a6947746d769c0d0c733914ac5163358ebafaf1c89d556b7eb9f33e243a834
+  attempt: ok stale=no partial=no never_successful=no clock_skew=no
+  last_success_at: 2026-10-17T11:40:00Z age_seconds: 1200
+  last_attempt_at: 2026-10-17T11:50:00Z
+  status_codes: none
+  source: autowork/runs mode=saved_snapshot required=yes health=ok checked=2026-10-17T11:40:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=partial-optional-churn
+  objective_key: 491e2a5527d71d518bea196819e62564b2a6bc4521ade3334bc36a0e58731115
+  trail_sha256: 97a8adb8986830a27aa774840cdde1564e9826b4416f1ca819976d8a6c0b7ee4
+  attempt: partial stale=no partial=yes never_successful=no clock_skew=no
+  last_success_at: 2026-10-17T11:50:00Z age_seconds: 600
+  last_attempt_at: 2026-10-17T11:50:00Z
+  status_codes: source_changed_during_read
+  source: autowork/runs mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  source: policy/scope mode=live required=no health=changed checked=unknown
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=failed-with-prior-content
+  objective_key: 66c187181bb3267f389a11c5e65641d50b1217c59600a77a83e055aea3d9890e
+  trail_sha256: cd6870ec737fd045d611ffef49d174ff024c63ebe4f82a09b72549a403032cbc
+  attempt: failed stale=yes partial=no never_successful=no clock_skew=no
+  last_success_at: 2026-10-17T11:30:00Z age_seconds: 1800
+  last_attempt_at: 2026-10-17T11:55:00Z
+  status_codes: required_source_failed
+  source: autowork/runs mode=live required=yes health=failed checked=2026-10-17T11:30:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T11:30:00Z
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=stale-by-age
+  objective_key: 7e99bee7957786c60434567ff43a4175cf199723220e8f25df1dc6d82ed59e1d
+  trail_sha256: 0153d78822080e726195bd8a303a1b2d940ff72462b13e6aa34418ee65864c87
+  attempt: ok stale=yes partial=no never_successful=no clock_skew=no
+  last_success_at: 2026-10-17T10:00:00Z age_seconds: 7200
+  last_attempt_at: 2026-10-17T10:00:00Z
+  status_codes: none
+  source: autowork/runs mode=live required=yes health=ok checked=2026-10-17T10:00:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T10:00:00Z
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=unknown-capture-plus-invalid-optional
+  objective_key: aa975ad1cddd01502dd9c181a5f6ef0050d52057854766b94d4ff89d9da9ee2f
+  trail_sha256: 9242a25bad295f919b5a83cbc66eacd30d2000091717573e5a949889137170d2
+  attempt: partial stale=yes partial=yes never_successful=no clock_skew=no
+  last_success_at: unknown age_seconds: unknown
+  last_attempt_at: 2026-10-17T11:50:00Z
+  status_codes: evidence_time_unknown optional_source_invalid
+  source: autowork/runs mode=saved_snapshot required=yes health=ok checked=unknown
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  source: policy/scope mode=live required=no health=invalid checked=unknown
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=clock-skew
+  objective_key: b341189e90e22f2a4f92305b060c67339b786bd4aadfe60275a95c1451f2c60b
+  trail_sha256: cd565602dc796b566a980654df2d7ce7370fe4710acf1304d96203753d0d4ee7
+  attempt: ok stale=yes partial=no never_successful=no clock_skew=yes
+  last_success_at: 2026-10-17T12:10:00Z age_seconds: 0
+  last_attempt_at: 2026-10-17T12:10:00Z
+  status_codes: clock_skew
+  source: autowork/runs mode=live required=yes health=ok checked=2026-10-17T12:10:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T12:10:00Z
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=clock-skew-plus-partial
+  objective_key: bc789961aecd3b224e893e2658621dff4b77bd88fd7fbc0c757c15848bb46aca
+  trail_sha256: 44b36880674422ff988ecc5515feda8594d43834c260db22edd09f1c784966e9
+  attempt: partial stale=yes partial=yes never_successful=no clock_skew=yes
+  last_success_at: 2026-10-17T12:10:00Z age_seconds: 0
+  last_attempt_at: 2026-10-17T12:10:00Z
+  status_codes: clock_skew optional_source_unavailable
+  source: autowork/runs mode=live required=yes health=ok checked=2026-10-17T12:10:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T12:10:00Z
+  source: policy/scope mode=live required=no health=unavailable checked=unknown
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=saved-unknown-capture
+  objective_key: bcda12586324eeffd06e48944e800bc54b17426746a23a254751bf99e0c94ca1
+  trail_sha256: 49b2a4d6b997315d55908093e1272ab47a3f66ed8148218776e005cc58343b9c
+  attempt: ok stale=yes partial=no never_successful=no clock_skew=no
+  last_success_at: unknown age_seconds: unknown
+  last_attempt_at: 2026-10-17T11:50:00Z
+  status_codes: evidence_time_unknown
+  source: autowork/runs mode=saved_snapshot required=yes health=ok checked=unknown
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=failed-null-content
+  objective_key: ca8f0d511ae4f913e15ae53bf1eeeeca5f70e405bc970fcf68f961c2e73388fe
+  trail_sha256: none
+  attempt: failed stale=yes partial=no never_successful=yes clock_skew=no
+  last_success_at: unknown age_seconds: unknown
+  last_attempt_at: 2026-10-17T11:55:00Z
+  status_codes: required_source_failed
+  source: autowork/runs mode=live required=yes health=failed checked=unknown
+  source: operator/agree mode=live required=yes health=ok checked=unknown
+  content: none
+objective: namespace=agree id=partial-invalid-optional
+  objective_key: ed91d9cf6be44cea7cff834d2fbe586d3c7f47d2feaa532efb2eba19ecd3dbf5
+  trail_sha256: c5163c70afecb78527c21caa9852846c1162b41c1654cde3c7c5ffc019d84637
+  attempt: partial stale=no partial=yes never_successful=no clock_skew=no
+  last_success_at: 2026-10-17T11:50:00Z age_seconds: 600
+  last_attempt_at: 2026-10-17T11:50:00Z
+  status_codes: optional_source_invalid
+  source: autowork/runs mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  source: policy/scope mode=live required=no health=invalid checked=unknown
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
+objective: namespace=agree id=fresh-resolved
+  objective_key: f6a459d81edc84b3606c730fb0ba3ef59c17063962a554f26391080158cf6283
+  trail_sha256: d9fbe2128e1a8463bd5a3a435920443bd51a13336b166bb5c710eec459d31b1d
+  attempt: ok stale=no partial=no never_successful=no clock_skew=no
+  last_success_at: 2026-10-17T11:50:00Z age_seconds: 600
+  last_attempt_at: 2026-10-17T11:50:00Z
+  status_codes: none
+  source: autowork/runs mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  source: operator/agree mode=live required=yes health=ok checked=2026-10-17T11:50:00Z
+  links: candidate=0 conflict=0 missing=0 resolved=1 unavailable=0 unsupported=0
+  gaps: revision_unrecorded=1
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported

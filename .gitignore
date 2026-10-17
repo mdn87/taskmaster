@@ -1,0 +1,13 @@
+# Local planning records: raw review machinery and Phase 1 probe output
+reviews/
+evidence/
+
+# Session continuity
+.claude/handoff.md
+.claude/handoff-history/
+
+# Python
+__pycache__/
+*.egg-info/
+build/
+dist/

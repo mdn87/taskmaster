@@ -1,0 +1,29 @@
+taskmaster trail report v1
+evaluated_at: 2026-10-17T13:00:00Z
+snapshot_id: 9ede81259048737ddf88b2291d3837f3fdc24c61f4f2c3dcfdf474a5d48b5703
+published_at: 2026-10-17T12:00:00Z
+max_age_seconds: 3600
+objectives: 2
+objective: namespace=ops id=obj-\u200bhidden
+  objective_key: 7096014e4950195d1184527b9d5e5181dc4cb59a2caa23a5ec540a968db69614
+  trail_sha256: none
+  attempt: failed stale=yes partial=no never_successful=yes clock_skew=no
+  last_success_at: unknown age_seconds: unknown
+  last_attempt_at: 2026-10-17T12:00:00Z
+  status_codes: required_source_failed
+  source: autowork/runs mode=live required=yes health=failed checked=unknown
+  source: operator/ops mode=live required=yes health=ok checked=unknown
+  content: none
+objective: namespace=ops id=obj-1
+  objective_key: 8dd70da6528c58b7b7fdaade537f6d3d13ed752d058ae390f3a1ddf17222cccd
+  trail_sha256: 95c757134665fefab89c044c1166484541e6f8702bddf42ff13f43da481ab684
+  attempt: partial stale=no partial=yes never_successful=no clock_skew=no
+  last_success_at: 2026-10-17T12:00:00Z age_seconds: 3600
+  last_attempt_at: 2026-10-17T12:00:00Z
+  status_codes: optional_source_unavailable
+  source: autowork/runs mode=live required=yes health=ok checked=2026-10-17T12:00:00Z
+  source: operator/ops mode=live required=yes health=ok checked=2026-10-17T12:00:00Z
+  source: policy/scope mode=live required=no health=unavailable checked=unknown
+  links: candidate=0 conflict=0 missing=0 resolved=0 unavailable=0 unsupported=0
+  gaps: none
+  coverage: agent-mail.board=unsupported autowork.outcome=unsupported dias.chip_annotation=unsupported lugos-audit.receipt=unsupported policy.current=unsupported roundtable.session=unsupported torc.lineage=unsupported
