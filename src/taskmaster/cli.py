@@ -114,6 +114,18 @@ def cmd_slash(args) -> int:
     return EXIT_OBJECTIVE_FAILED if value.get('failed_objectives', 0) else EXIT_OK
 
 
+def cmd_backfill(args) -> int:
+    from .backfill import run
+    try:
+        result = run(args.config, args.claude_project, args.codex_db, args.apply)
+    except watch.WatchError:
+        raise
+    except ValueError as exc:
+        raise watch.WatchError('invalid backfill or registry data; import stopped') from exc
+    _write(_json_bytes(result))
+    return EXIT_OK
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="taskmaster", description="Read-only objective trail index.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -123,6 +135,13 @@ def parser() -> argparse.ArgumentParser:
     w.add_argument('--settings')
     w.add_argument('--once', action='store_true')
     w.set_defaults(func=cmd_watch)
+
+    backfill = sub.add_parser('backfill-sessions', help='verify historical local session metadata; preview unless --apply')
+    backfill.add_argument('--config', required=True)
+    backfill.add_argument('--claude-project', action='append', default=[], help='explicit Claude project directory (repeatable)')
+    backfill.add_argument('--codex-db', help='local Codex metadata database, opened read-only')
+    backfill.add_argument('--apply', action='store_true', help='import verified sessions and refresh consumers')
+    backfill.set_defaults(func=cmd_backfill)
 
     slash = sub.add_parser('slash', help='run a /taskmaster status, sessions, use, clear, auto or refresh command')
     slash.add_argument('--config', required=True)

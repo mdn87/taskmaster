@@ -61,3 +61,25 @@ of an implementation. An objective containing such a run reports
 An unknown capture time stays unknown. The entry gets `evidence_time_unknown`, `last_success_at` is null, and every reader reports it as stale. Taskmaster never substitutes file modification times.
 
 The frozen pilot corpus is `fixtures/corpus/retry-chain/manifest.json`, with 140 record files and `captured_at: null`. It was generated with `sources.manifest_for` from the Autowork repository's `tests/fixtures/dispatch-outcome/recorded/` tree. The corpus itself is not copied into this repository. `tests/test_corpus.py` copies it from a sibling checkout at test time and skips when that checkout is missing.
+
+## Explicit historical session metadata import
+
+`backfill-sessions` is an opt-in context import, separate from objective projection
+and the continuous watcher. It reads only explicitly named local provider stores:
+
+- Claude: at most 2,048 direct directory entries and 512 direct JSONL files per
+  project; no recursion or child-agent directory traversal. Each file is limited
+  to 64 MiB and each record to 4 MiB. Only top-level identity, working directory
+  and timestamp fields contribute to the result; message bodies are discarded.
+  Duplicate JSON fields, ID disagreement, malformed data, and files changing
+  during the read are rejected.
+- Codex: at most 10,000 rows from the read-only `threads` metadata table, selecting
+  only ID, working directory, rollout path and creation/update times. Only exact
+  workspace matches trigger a read of their local rollout's first record, capped
+  at 4 MiB, to corroborate the ID and working directory.
+
+The shared source-read budget is 512 MiB, charged as JSONL bytes are read. Direct
+source files and Claude project directories must be regular, not symlinks/reparse
+points. Sources are never modified. Imported context and metadata provenance stay
+in local registry/receipt files; they do not enter execution evidence. See
+[backfill usage](continuous-tracking.md#backfilling-historical-session-ids).
