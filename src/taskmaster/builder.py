@@ -154,7 +154,7 @@ def _read_policy(objective: Objective) -> bytes | None:
         return None
 
 
-def _observe(config: Config, objective: Objective, run_ids: list[str]):
+def _observe(config: Config, objective: Objective, run_ids: list[str], owner_cache=None):
     """One owner observation bracketed by footprint reads. Returns (before, after, located, owner_doc, version)."""
     store = objective.run_store
     before = footprint(store.path)
@@ -168,12 +168,25 @@ def _observe(config: Config, objective: Objective, run_ids: list[str]):
         located[run_id] = matches[0] if matches else None
     present = [r for r in run_ids if located[r] is not None]
     owner_doc, version = None, None
+    cache_key = None
     if present:
-        version = autowork.check_version(config.autowork)
-        owner_doc = autowork.outcome(config.autowork, store.path, objective.id, present)
+        version_key = (config.autowork.argv, config.autowork.version)
+        versions = owner_cache.setdefault('versions', {}) if owner_cache is not None else {}
+        if version_key not in versions:
+            versions[version_key] = autowork.check_version(config.autowork)
+        version = versions[version_key]
+        cache_key = sha256_hex(canonical([list(config.autowork.argv), version, objective.id,
+                                         present, str(store.path.absolute()), list(before.dirs), before.files]))
+        cached = owner_cache.get('outcomes', {}).get(cache_key) if owner_cache is not None else None
+        owner_doc = cached[0] if cached else autowork.outcome(config.autowork, store.path, objective.id, present)
     after = footprint(store.path)
     if after.skipped_dirs:
         raise _Failure("source_changed_during_read", "autowork", "changed")
+    if owner_cache is not None and cache_key is not None and before.signature() == after.signature():
+        outcomes = owner_cache.setdefault('outcomes', {})
+        outcomes[cache_key] = (owner_doc, len(json.dumps(owner_doc)))
+        while len(outcomes) > 32 or sum(row[1] for row in outcomes.values()) > autowork.MAX_OWNER_OUTPUT:
+            outcomes.pop(next(iter(outcomes)))
     return before, after, located, owner_doc, version
 
 
@@ -351,7 +364,7 @@ def _over_count_bounds(content: dict) -> bool:
         or any(len(l["evidence"]) > schema.MAX_EVIDENCE_PER_LINK for l in content["links"])
 
 
-def attempt_objective(config: Config, objective: Objective, now: str) -> AttemptResult:
+def attempt_objective(config: Config, objective: Objective, now: str, owner_cache=None) -> AttemptResult:
     store = objective.run_store
     policy = objective.policy
 
@@ -372,7 +385,7 @@ def attempt_objective(config: Config, objective: Objective, now: str) -> Attempt
             annotation_raw, run_ids = _read_annotation(objective)
             policy_before = _read_policy(objective)
             manifest_before = load_manifest(store.manifest) if store.mode == "saved_snapshot" else None
-            before, after, located, owner_doc, version = _observe(config, objective, run_ids)
+            before, after, located, owner_doc, version = _observe(config, objective, run_ids, owner_cache)
             annotation_after, _ = _read_annotation(objective)
             policy_after = _read_policy(objective)
             manifest_after = load_manifest(store.manifest) if store.mode == "saved_snapshot" else None
@@ -417,13 +430,13 @@ def attempt_objective(config: Config, objective: Objective, now: str) -> Attempt
                                                   autowork_time=autowork_time))
 
 
-def build_entries(config: Config, prior_doc: dict | None, now: str) -> list[dict]:
+def build_entries(config: Config, prior_doc: dict | None, now: str, owner_cache=None) -> list[dict]:
     prior = {}
     if prior_doc is not None:
         prior = {(e["namespace"], e["id"]): e for e in prior_doc["entries"]}
     entries = []
     for objective in config.objectives:
-        attempt = attempt_objective(config, objective, now)
+        attempt = attempt_objective(config, objective, now, owner_cache)
         entries.append(merge_entry(objective.namespace, objective.id, objective.binding_sha256,
                                    prior.get((objective.namespace, objective.id)), attempt, now))
     return entries

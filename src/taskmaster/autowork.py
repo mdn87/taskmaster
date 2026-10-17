@@ -7,6 +7,7 @@ runs work, and it passes an argument array with stdin closed.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -25,7 +26,8 @@ _VERSION = re.compile(r"version (\S+)")
 def _run(argv: list[str], timeout: int) -> subprocess.CompletedProcess:
     """Drain both pipes concurrently, stopping at a hard per-pipe byte cap."""
     try:
-        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     except OSError:
         raise SourceError("required_source_failed", "owner command did not complete") from None
     buffers = [bytearray(), bytearray()]

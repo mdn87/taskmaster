@@ -71,6 +71,7 @@ class Config:
     max_age_seconds: int
     autowork: OwnerCommand
     objectives: list[Objective] = field(default_factory=list)
+    watch: Path | None = None
 
 
 def _private(path: Path) -> str:
@@ -135,7 +136,7 @@ def load(path: str | os.PathLike) -> Config:
 
 def _build(config_path: Path, raw: dict) -> Config:
     base = config_path.parent
-    _table(raw, "root", {"schema_version", "max_age_seconds", "autowork", "stores", "policies", "objectives", "chips"},
+    _table(raw, "root", {"schema_version", "max_age_seconds", "autowork", "stores", "policies", "objectives", "chips", "watch"},
            {"schema_version", "autowork", "stores", "objectives"})
     if raw["schema_version"] != 1 or isinstance(raw["schema_version"], bool):
         raise ConfigError("schema_version must be 1")
@@ -238,4 +239,5 @@ def _build(config_path: Path, raw: dict) -> Config:
 
     if merge.worst_case_observation_size() > schema.OBSERVATION_RESERVE:
         raise ConfigError("worst-case observation exceeds the entry reserve")
-    return Config(config_path, max_age, owner, objectives)
+    return Config(config_path, max_age, owner, objectives,
+                  _resolve(base, raw['watch'], 'watch') if 'watch' in raw else None)

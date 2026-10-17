@@ -129,7 +129,7 @@ def publish(path: Path, data: bytes) -> None:
     # Abandoned siblings are intentionally retained; cleanup is a separate action.
 
 
-def refresh(cfg, path: Path, now: str, *, recover_invalid_export: bool = False) -> dict:
+def refresh(cfg, path: Path, now: str, *, recover_invalid_export: bool = False, owner_cache=None) -> dict:
     """Refresh under a lock. The CLI validates config/time before entering here."""
     path = Path(path)
     try:
@@ -147,7 +147,7 @@ def refresh(cfg, path: Path, now: str, *, recover_invalid_export: bool = False) 
                 else:
                     raise
             try:
-                entries = builder.build_entries(cfg, prior, now)
+                entries = builder.build_entries(cfg, prior, now) if owner_cache is None else builder.build_entries(cfg, prior, now, owner_cache)
                 data = export.assemble(entries, now, cfg.max_age_seconds)
                 publish(path, data)
                 return export.verify(data)
