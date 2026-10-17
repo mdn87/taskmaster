@@ -139,7 +139,8 @@ separate context projection: neither it nor its resume IDs enter the hashed
 execution evidence export or the existing morning-report evidence block. The
 companion report exposes the same local session history as Dias and the CLI.
 Raw resume IDs are available only on the loopback Dias listener, never the
-Surface listener. No transcripts are inspected.
+Surface listener. Continuous tracking does not inspect transcripts. Historical
+metadata imports require the separate, explicit command below.
 
 Registration history records provider, resume ID, first/last observation and
 each objective/provenance assignment period. Moving or clearing a session closes
@@ -152,3 +153,40 @@ Retention is explicit: there is no automatic eviction. The registry permits
 Reaching a limit or detecting corrupt history fails the update and preserves the
 previous registry. Watcher status/last-error and registry freshness expose the
 failure. No database migration or schema change to the execution export is needed.
+
+## Backfilling historical session IDs
+
+Use `backfill-sessions` to preview verified original IDs from explicitly named
+local provider stores. Repeat `--claude-project` for each relevant directory;
+both provider options are optional, but at least one source is required.
+
+```text
+taskmaster backfill-sessions --config taskmaster.toml --claude-project PATH_TO_CLAUDE_PROJECT --codex-db PATH_TO_CODEX_STATE_DB
+```
+
+Add `--apply` to import the verified candidates and refresh Dias, the CLI registry,
+and the companion session report. The command opens the Codex database read-only
+and corroborates each selected thread ID and working directory against its local
+rollout header. For Claude, it reads top-level `sessionId`, `cwd`, and `timestamp`
+metadata from direct JSONL files and requires the session ID to match the filename.
+These files contain transcripts; the importer parses bounded records but neither
+uses message text for matching nor retains it in reports or receipts.
+
+Assignment requires an exact configured workspace path or its configured hash.
+Titles, file modification times, project-name similarities, and transcript text
+never establish membership. Multiple matching objectives or providers are rejected.
+The resulting assignment is user-requested session context, labelled `operator`;
+it does not add Autowork runs or make claims about execution evidence.
+
+An import preserves existing assignments, moves, clears, and live activity status.
+New historical entries start inactive. Repeating the import does not duplicate
+registrations. Each applied import saves a prior-registry backup when one exists,
+metadata-only provenance with source/record hashes, and a result under the watch
+state's `backfills/` directory. The result records the durable import and consumer
+refresh separately. If refresh fails after import, the watcher or an ordinary
+refresh republishes the retained history; the error identifies the receipt.
+
+Missing or ambiguous IDs remain unavailable. Provider timestamps describe observed
+session metadata, not evidence freshness or proof that a particular run executed
+inside that chat. Having a local session record does not test the provider's resume
+command; copying an ID never starts work automatically.
