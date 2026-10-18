@@ -62,7 +62,7 @@ def validate(value):
     return value
 
 
-def reconcile(previous, bindings, feed, overrides, now, status, max_age):
+def reconcile(previous, bindings, feed, overrides, now, status, max_age, *, ended=(), ended_bindings=()):
     if previous is not None:
         validate(previous)
         if now < previous['evaluated_at']:
@@ -70,22 +70,33 @@ def reconcile(previous, bindings, feed, overrides, now, status, max_age):
     rows = {row['run_id']: copy.deepcopy(row) for row in (previous or {}).get('sessions', [])}
     live = {row['run_id']: row for row in bindings} if status == 'current' else {}
     context = {row.get('runId'): row for row in feed}
-    for run_id, binding in live.items():
+    exits = {row['runId']: row for row in ended} if status == 'current' else {}
+    exit_bindings = {row['run_id']: row for row in ended_bindings}
+    observations = {}
+    for run_id in live.keys() | exits.keys():
+        event = context[run_id] if run_id in live else exits[run_id]
+        seen_at = now if run_id in live else event['observedAt']
+        if not timefmt.is_valid(seen_at) or seen_at > now:
+            raise ValueError('invalid session exit time; existing history retained')
+        identity = resume_identity(run_id, event.get('resume'))
+        if run_id not in live and identity is None:
+            raise ValueError('invalid session exit identity; existing history retained')
+        is_new = run_id not in rows
         if run_id not in rows:
             rows[run_id] = {'run_id': run_id, 'provider': None, 'session_id': None, 'objective': None,
-                            'provenance': 'unassigned', 'first_seen_at': now, 'last_seen_at': now,
-                            'active': True, 'assignments': []}
+                            'provenance': 'unassigned', 'first_seen_at': seen_at, 'last_seen_at': seen_at,
+                            'active': False, 'assignments': []}
         row = rows[run_id]
-        identity = resume_identity(run_id, context.get(run_id, {}).get('resume'))
+        if is_new or seen_at > row['last_seen_at'] or run_id in live:
+            observations[run_id] = (live.get(run_id) or exit_bindings.get(run_id), seen_at)
+            row['last_seen_at'] = max(row['last_seen_at'], seen_at)
         if identity is not None:
             if row['provider'] is not None and identity != (row['provider'], row['session_id']):
                 raise ValueError('conflicting provider identity; existing history retained')
             row['provider'], row['session_id'] = identity
     for run_id, row in rows.items():
         row['active'] = run_id in live
-        if row['active']:
-            row['last_seen_at'] = now
-        binding = live.get(run_id)
+        binding, observed_at = observations.get(run_id, (None, now))
         target, provenance = row['objective'], row['provenance']
         if binding is not None:
             target, provenance = binding['objective'], binding['provenance']
@@ -96,10 +107,11 @@ def reconcile(previous, bindings, feed, overrides, now, status, max_age):
             current['ended_at'] = now
             current = None
         if target is not None and current is None:
-            current = {'objective': target, 'provenance': provenance, 'registered_at': now, 'last_seen_at': now, 'ended_at': None}
+            registered_at = now if run_id in overrides else observed_at
+            current = {'objective': target, 'provenance': provenance, 'registered_at': registered_at, 'last_seen_at': registered_at, 'ended_at': None}
             row['assignments'].append(current)
-        if current and row['active']:
-            current['last_seen_at'] = now
+        if current and run_id in observations:
+            current['last_seen_at'] = max(current['last_seen_at'], observed_at)
         row['objective'], row['provenance'] = target, provenance
     return validate({'schema': 'taskmaster.registry/v1', 'evaluated_at': now, 'max_age_seconds': max_age,
                      'status': status, 'sessions': sorted(rows.values(), key=lambda row: row['run_id'])})

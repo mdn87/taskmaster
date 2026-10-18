@@ -268,7 +268,7 @@ def discover(settings, cache=None):
 def session_bindings(sessions, rules, overrides):
     available = {r['namespace'] + '/' + r['id'] for r in rules}
     result = []
-    for session in sessions[:512]:
+    for session in sessions:
         run_id = session.get('runId')
         if not isinstance(run_id, str) or not re.fullmatch('[A-Za-z0-9._:-]{1,200}', run_id):
             continue
@@ -294,12 +294,12 @@ def session_bindings(sessions, rules, overrides):
 def project_sessions(settings, now):
     state = Path(settings['state_dir'])
     registry = read_json(state / 'registrations.json', {'overrides': {}, 'history': []})
-    rows, status, feed_sessions = [], 'unconfigured', []
+    rows, status, feed_sessions, ended, ended_bindings = [], 'unconfigured', [], [], []
     if settings.get('dias_url'):
         try:
             with urllib.request.urlopen(settings['dias_url'] + '/api/v1/trails/context', timeout=3) as response:
-                raw = response.read(1024 * 1024 + 1)
-            if len(raw) > 1024 * 1024:
+                raw = response.read(5 * 1024 * 1024 + 1)
+            if len(raw) > 5 * 1024 * 1024:
                 raise WatchError('session feed over bounds')
             feed = owner_json(raw)
             if feed.get('schemaVersion') != 1 or not isinstance(feed.get('sessions'), list):
@@ -311,16 +311,30 @@ def project_sessions(settings, now):
             if any(not isinstance(i, str) for i in ids) or len(set(ids)) != len(ids):
                 raise WatchError('duplicate or invalid session identity')
             rows = session_bindings(feed_sessions, settings['rules'], registry['overrides'])
+            ended = feed.get('endedSessions', [])
+            if not isinstance(ended, list) or len(ended) > session_registry.MAX_SESSIONS or any(not isinstance(row, dict) for row in ended):
+                raise WatchError('invalid session exits')
+            exit_ids = [row.get('runId') for row in ended]
+            if any(not isinstance(i, str) for i in exit_ids) or len(set(exit_ids)) != len(exit_ids):
+                raise WatchError('duplicate or invalid session exit identity')
+            for row in ended:
+                if (session_registry.resume_identity(row['runId'], row.get('resume')) is None
+                        or not timefmt.is_valid(row.get('observedAt')) or row['observedAt'] > now):
+                    raise WatchError('invalid session exit metadata')
+            ended_bindings = session_bindings(ended, settings['rules'], registry['overrides'])
+            if len(ended_bindings) != len(ended):
+                raise WatchError('invalid session exit matching context')
             status = 'current'
         except (OSError, ValueError):
             status = 'unavailable'
-            rows, feed_sessions = [], []
+            rows, feed_sessions, ended, ended_bindings = [], [], [], []
     payload = {'schema': 'taskmaster.sessions/v1', 'evaluated_at': now,
                'max_age_seconds': 2 * settings['interval_seconds'] + 10, 'status': status, 'sessions': rows}
     history_path = state / 'session-registry.json'
     try:
         previous = read_session_registry(history_path)
-        history = session_registry.reconcile(previous, rows, feed_sessions, registry['overrides'], now, status, payload['max_age_seconds'])
+        history = session_registry.reconcile(previous, rows, feed_sessions, registry['overrides'], now, status, payload['max_age_seconds'],
+                                             ended=ended, ended_bindings=ended_bindings)
     except (ValueError, TypeError, KeyError) as exc:
         raise WatchError('session registry update failed; previous history retained') from exc
     atomic_json(history_path, history)

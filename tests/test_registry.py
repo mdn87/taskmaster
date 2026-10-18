@@ -59,6 +59,33 @@ class RegistryTests(unittest.TestCase):
         value = registry.reconcile(None, [self.row(None, 'ambiguous')], self.feed(), {}, NOW, 'current', 70)
         self.assertEqual(value['sessions'][0]['assignments'], [])
 
+    def test_exit_before_first_poll_is_registered_inactive_and_replay_does_not_refresh_age(self):
+        ended = [{**self.feed()[0], 'observedAt': NOW}]
+        first = registry.reconcile(None, [], [], {}, LATER, 'current', 70,
+                                   ended=ended, ended_bindings=[self.row()])
+        row = first['sessions'][0]
+        self.assertEqual(row['session_id'], SID)
+        self.assertFalse(row['active'])
+        self.assertEqual(row['last_seen_at'], NOW)
+        self.assertEqual(row['objective'], 'ops/one')
+        replay = registry.reconcile(first, [], [], {RID: None}, END, 'current', 70,
+                                    ended=ended, ended_bindings=[self.row()])
+        self.assertEqual(replay['sessions'][0]['last_seen_at'], NOW)
+        self.assertIsNone(replay['sessions'][0]['objective'])
+        self.assertEqual(len(replay['sessions'][0]['assignments']), 1)
+
+    def test_unmatched_exit_is_retained_and_live_resume_wins_over_old_exit(self):
+        ended = [{**self.feed()[0], 'observedAt': NOW}]
+        first = registry.reconcile(None, [], [], {}, LATER, 'current', 70,
+                                   ended=ended, ended_bindings=[self.row(None, 'unassigned')])
+        self.assertIsNone(first['sessions'][0]['objective'])
+        resumed = registry.reconcile(first, [self.row()], self.feed(), {}, END, 'current', 70,
+                                     ended=ended, ended_bindings=[self.row(None, 'unassigned')])
+        self.assertEqual(len(resumed['sessions']), 1)
+        self.assertTrue(resumed['sessions'][0]['active'])
+        self.assertEqual(resumed['sessions'][0]['objective'], 'ops/one')
+        self.assertEqual(resumed['sessions'][0]['last_seen_at'], END)
+
     def test_corrupt_history_and_capacity_fail_instead_of_losing_data(self):
         first = registry.reconcile(None, [self.row()], self.feed(), {}, NOW, 'current', 70)
         with patch.object(registry, 'MAX_SESSIONS', 0), self.assertRaises(ValueError):
