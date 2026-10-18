@@ -11,7 +11,7 @@ import json
 
 from . import autowork, schema
 from .canonical import canonical, sha256_hex
-from .config import Config, Objective
+from .config import MAX_OBJECTIVES, Config, Objective
 from .identity import IdentityError, is_sha256_hex, validate_id, validate_token
 from .merge import AttemptResult, SourceResult, merge_entry
 from .sources import SourceError, footprint, load_manifest, parse_record, read_small
@@ -185,7 +185,9 @@ def _observe(config: Config, objective: Objective, run_ids: list[str], owner_cac
     if owner_cache is not None and cache_key is not None and before.signature() == after.signature():
         outcomes = owner_cache.setdefault('outcomes', {})
         outcomes[cache_key] = (owner_doc, len(json.dumps(owner_doc)))
-        while len(outcomes) > 32 or sum(row[1] for row in outcomes.values()) > autowork.MAX_OWNER_OUTPUT:
+        # One entry per configured objective: a smaller bound evicts every entry
+        # before its next use when objectives are refreshed in a fixed order.
+        while len(outcomes) > MAX_OBJECTIVES or sum(row[1] for row in outcomes.values()) > autowork.MAX_OWNER_OUTPUT:
             outcomes.pop(next(iter(outcomes)))
     return before, after, located, owner_doc, version
 
