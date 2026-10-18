@@ -47,6 +47,12 @@ class HandoffTests(Workspace):
         self.assertEqual(len(ledger['events']), 2)
         self.assertEqual(ledger['events'][1]['previous_event_id'], ledger['events'][0]['event_id'])
 
+    def test_slow_cycle_widens_the_freshness_window(self):
+        base = 2 * self.settings['interval_seconds'] + 10
+        self.assertEqual(handoffs.publish(self.settings, NOW)['max_age_seconds'], base)
+        self.assertEqual(handoffs.publish(self.settings, NOW, 37.2)['max_age_seconds'], base + 76)
+        self.assertEqual(handoffs.publish(self.settings, NOW, 10**6)['max_age_seconds'], 7210)
+
     def test_invalid_missing_and_stale_notes_do_not_claim_saved(self):
         handoffs.publish(self.settings, NOW)
         self.note.write_text(NOTE.replace('## Next Up', '## Missing section'), encoding='utf-8')

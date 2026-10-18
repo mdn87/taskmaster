@@ -416,7 +416,7 @@ def _tick(cfg, settings, now, owner_cache=None, recover_invalid_export=False):
     with publication.writer_lock(state / 'registrations'):
         sessions = project_sessions(settings, timefmt.now())
     from . import handoffs
-    handoff_status = handoffs.publish(settings, now)
+    handoff_status = handoffs.publish(settings, now, time.monotonic() - started)
     failed = sum(e['observation']['attempt_status'] == 'failed' for e in doc['entries'])
     status = {'schema_version': 1, 'checked_at': now, 'pid': os.getpid(), 'state': 'source_failed' if error else ('degraded' if failed else 'running'),
               'interval_seconds': settings['interval_seconds'], 'generation': str(generation), 'fingerprint': fingerprint,
