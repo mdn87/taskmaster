@@ -5,6 +5,13 @@ direct run directories every 30 seconds by default, reads only allowlisted owner
 records, and never enters private child-output or credential-isolation folders.
 It neither dispatches work nor reads agent transcripts.
 
+The watcher can also observe the existing Codex and Claude session handoff notes
+at explicitly configured objective workspaces. A valid save records a ledger
+event and updates a Handoff saved flag; stale, missing and invalid notes remain
+visible. See [session handoff status](handoff-status.md) for configuration,
+validation, retention and the distinction between saving a note and accepting a
+handoff. Inspect these flags with `/taskmaster handoffs --format report`.
+
 ## Verified discovery
 
 Set `watch = ".local/watch/settings.json"` at the top level of `taskmaster.toml`.

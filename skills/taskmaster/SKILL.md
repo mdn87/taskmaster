@@ -16,6 +16,7 @@ The supported commands are:
 
 - `/taskmaster status`: watcher heartbeat, evidence failures and quarantined runs.
 - `/taskmaster trails`: registered objectives and their exact discovery scopes.
+- `/taskmaster handoffs [--format report]`: saved, stale, missing or invalid session handoff notes by trail. A saved note does not prove another session resumed it.
 - `/taskmaster sessions`: live Dias session assignments, detection candidates and provenance.
 - `/taskmaster sessions --all`: persistent registrations, including inactive sessions and verified provider resume IDs.
 - `/taskmaster sessions --trail NAMESPACE/ID [--format report]`: current and historical sessions registered to one trail.

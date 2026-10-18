@@ -75,7 +75,7 @@ def normalized(value):
 def load_settings(path, cfg):
     path = Path(path).absolute()
     raw = read_json(path)
-    allowed = {'schema_version', 'source', 'state_dir', 'export', 'interval_seconds', 'rules', 'dias_url'}
+    allowed = {'schema_version', 'source', 'state_dir', 'export', 'interval_seconds', 'rules', 'dias_url', 'handoffs'}
     if set(raw) - allowed or type(raw.get('schema_version')) is not int or raw['schema_version'] != 1:
         raise WatchError('unsupported watch configuration')
     for key in ('source', 'state_dir', 'export'):
@@ -118,7 +118,11 @@ def load_settings(path, cfg):
         keys = rule.get('workspace_keys', [])
         if not isinstance(keys, list) or len(keys) > 64 or not all(isinstance(k, str) and re.fullmatch('[a-f0-9]{64}', k) for k in keys):
             raise WatchError('invalid session workspace keys')
-    return raw
+    from . import handoffs
+    try:
+        return handoffs.configure(raw, path.parent)
+    except ValueError as exc:
+        raise WatchError(str(exc)) from exc
 
 
 def plain(path, directory=False):
@@ -411,12 +415,14 @@ def _tick(cfg, settings, now, owner_cache=None, recover_invalid_export=False):
     atomic_bytes(destination.parent / 'trails-report.md', report.render(readmodel.show(doc, now)))
     with publication.writer_lock(state / 'registrations'):
         sessions = project_sessions(settings, timefmt.now())
+    from . import handoffs
+    handoff_status = handoffs.publish(settings, now)
     failed = sum(e['observation']['attempt_status'] == 'failed' for e in doc['entries'])
     status = {'schema_version': 1, 'checked_at': now, 'pid': os.getpid(), 'state': 'source_failed' if error else ('degraded' if failed else 'running'),
               'interval_seconds': settings['interval_seconds'], 'generation': str(generation), 'fingerprint': fingerprint,
               'memberships': memberships, 'quarantine': quarantine[:512], 'quarantine_count': len(quarantine),
               'snapshot_id': doc['snapshot_id'], 'failed_objectives': failed,
-              'session_status': sessions['status']}
+              'session_status': sessions['status'], 'handoff_status': handoff_status['status']}
     status['discovery_seconds'] = discovery_seconds
     status['cycle_seconds'] = round(time.monotonic() - started, 3)
     atomic_json(state / 'status.json', status)

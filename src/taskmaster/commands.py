@@ -31,7 +31,7 @@ def execute(config_path, text):
                              '/taskmaster sessions --all [--trail NAMESPACE/ID] [--format report]',
                              '/taskmaster use NAMESPACE/ID [--session DIAS_RUN_ID]',
                              '/taskmaster clear [--session DIAS_RUN_ID]',
-                             '/taskmaster auto [--session DIAS_RUN_ID]', '/taskmaster refresh']}
+                             '/taskmaster auto [--session DIAS_RUN_ID]', '/taskmaster handoffs', '/taskmaster refresh']}
     cfg = config.load(config_path)
     if cfg.watch is None:
         raise watch.WatchError('watch is not configured')
@@ -43,6 +43,10 @@ def execute(config_path, text):
     if command == 'trails' and not tokens:
         return {'trails': [{'objective': r['namespace'] + '/' + r['id'],
                             'workspace': r['workspace'], 'project_ids': r['project_ids']} for r in settings['rules']]}
+    if command == 'handoffs' and tokens in ([], ['--format', 'report']):
+        from . import handoffs
+        value = handoffs.read_projection(Path(settings['export']).parent/'handoffs.json', timefmt.now())
+        return handoffs.render(value) if tokens else value
     if command == 'status' and not tokens:
         value = watch.read_json(state / 'status.json', {'state': 'not_started'})
         if 'checked_at' in value:
