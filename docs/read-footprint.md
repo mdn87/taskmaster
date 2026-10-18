@@ -83,3 +83,14 @@ source files and Claude project directories must be regular, not symlinks/repars
 points. Sources are never modified. Imported context and metadata provenance stay
 in local registry/receipt files; they do not enter execution evidence. See
 [backfill usage](continuous-tracking.md#backfilling-historical-session-ids).
+
+## Configured session handoff notes
+
+The optional handoff observer reads only the named provider note for an exact
+configured objective workspace. Each note is bounded to 64 KiB, read as strict
+UTF-8, checked for required metadata/sections, and rejected if it changes during
+the read or its immediate workspace/provider directory is a symlink or reparse
+point. It does not inspect handoff-history directories. The observer retains
+only digests, timestamps, provider and objective context in a separate ledger;
+it never publishes note text or adds an execution relationship. See
+[session handoff status](handoff-status.md) for the versioned projection.

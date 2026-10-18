@@ -43,6 +43,22 @@ def render_once(export_path: Path, now: str) -> tuple[int, bytes]:
         return result.returncode, out.read(MAX_BLOCK + 1)
 
 
+def handoff_context(export_path: Path, now: str) -> bytes:
+    """Read optional context once, without changing execution evidence."""
+    path = export_path.with_name('handoffs.json')
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return b''
+    except OSError:
+        return b'\nTaskmaster handoff: unavailable\n'
+    from . import handoffs
+    try:
+        return b'\n' + handoffs.render(handoffs.read_projection(path, now)).encode('utf-8')
+    except (OSError, ValueError):
+        return b'\nTaskmaster handoff: unavailable\n'
+
+
 def prepare(export_path: Path | None, now: str) -> Prepared:
     if export_path is None:
         return Prepared()
@@ -65,6 +81,13 @@ def prepare(export_path: Path | None, now: str) -> Prepared:
         block.decode("utf-8", errors="strict")
     except UnicodeError:
         return Prepared(error="renderer_invalid_output")
+    context = handoff_context(export_path, now)
+    if (len(block) + len(context) > MAX_BLOCK or b'\r' in context
+            or (context and not context.endswith(b'\n'))
+            or b'<!-- BEGIN TASKMASTER' in context or b'<!-- END TASKMASTER' in context
+            or DIGEST in context):
+        return Prepared(error="renderer_invalid_output")
+    block += context
     return Prepared(block=block)
 
 

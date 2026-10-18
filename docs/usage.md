@@ -77,6 +77,21 @@ processing. Deliver the verified file verbatim, rather than rewriting its block.
 The helper uses one clock and one export read; a concurrent refresh cannot change
 the bytes it verifies. CRLF translation or block modification fails verification.
 
+When the watcher publishes `handoffs.json` beside the export, the report also
+includes session handoff status for each configured trail in that same verified
+block. The helper reads this optional context once using the report's evaluation
+time; a later refresh cannot change the delivered bytes. An absent sidecar keeps
+the existing report unchanged. An invalid, unreadable, expired or future-dated
+sidecar reports handoff status as unavailable while retaining the execution
+trail report and inbox body. The execution export and its evidence hashes are
+unchanged.
+
+A `saved` handoff means a valid session handoff note was observed within seven
+days. It does not assert that anyone resumed or accepted the work. Reports expose
+only the objective, provider and handoff metadata, never note prose, private paths
+or original session IDs. See [session handoff status](handoff-status.md) for the
+configuration and validation contract.
+
 ## Dias
 
 Set `DIAS_TASKMASTER_EXPORT` on the existing Dias host to the same saved export.
