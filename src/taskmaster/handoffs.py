@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 
@@ -184,11 +185,13 @@ def load_ledger(path):
     return value
 
 
-def publish(settings, now):
+def publish(settings, now, cycle_seconds=0.0):
     from . import watch
     state, destination = Path(settings['state_dir']), Path(settings['export']).parent
     state.mkdir(parents=True, exist_ok=True)
-    max_age = 2 * settings['interval_seconds'] + 10
+    # `now` is the cycle start. The projection must outlive the rest of this
+    # cycle, the poll interval and the next cycle, so a slow cycle widens it.
+    max_age = min(7210, 2 * settings['interval_seconds'] + 10 + 2 * math.ceil(cycle_seconds))
     result = empty(now, 'current' if settings.get('handoffs') else 'unconfigured', max_age)
     try:
         with publication.writer_lock(state/'handoffs'):
