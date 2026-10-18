@@ -1,10 +1,13 @@
 """Continuous discovery must preserve membership and operator corrections."""
 import json
+import hashlib
+import io
 import threading
 import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.helpers import Workspace, make_run, write_json, NOW
 from taskmaster import watch
@@ -95,6 +98,26 @@ class WatchTests(Workspace):
             {'namespace': 'lugos', 'id': 'one', 'project_ids': ['lugos'], 'workspace_keys': ['a' * 64]},
             {'namespace': 'lugos', 'id': 'two', 'project_ids': ['lugos'], 'workspace_keys': ['b' * 64]}], {})
         self.assertEqual(rows[0]['objective'], 'lugos/one')
+
+    def test_exit_feed_is_published_even_when_no_live_session_was_observed(self):
+        sid = 'finished-between-polls'
+        rid = 'dias:codex-hook:' + hashlib.sha256(sid.encode()).hexdigest()
+        settings = {**json.loads(self.settings.read_text()), 'state_dir': str(self.tmp / 'state'),
+                    'export': str(self.tmp / 'export.json'), 'dias_url': 'http://127.0.0.1:4175'}
+        ended = {'runId': rid, 'projectIds': ['lane'], 'workspaceKeys': [],
+                 'resume': {'provider': 'codex', 'session_id': sid}, 'observedAt': NOW}
+        feed = {'schemaVersion': 1, 'sessions': [], 'endedSessions': [ended]}
+        with patch('urllib.request.urlopen', return_value=io.BytesIO(json.dumps(feed).encode())):
+            result = watch.project_sessions(settings, NOW)
+        self.assertEqual(result['sessions'], [])
+        row = json.loads((self.tmp / 'registry.json').read_text())['sessions'][0]
+        self.assertEqual(row['session_id'], sid)
+        self.assertEqual(row['objective'], 'ops/obj-1')
+        self.assertFalse(row['active'])
+        feed['endedSessions'].append(ended)
+        with patch('urllib.request.urlopen', return_value=io.BytesIO(json.dumps(feed).encode())):
+            self.assertEqual(watch.project_sessions(settings, NOW)['status'], 'unavailable')
+        self.assertEqual(json.loads((self.tmp / 'registry.json').read_text())['sessions'][0], row)
 
     def test_slash_correction_persists_and_auto_restores_detection(self):
         class Feed(BaseHTTPRequestHandler):

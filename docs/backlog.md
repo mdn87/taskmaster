@@ -4,6 +4,10 @@
 
 Requested 2026-10-17. Implemented; see [continuous tracking](continuous-tracking.md#resumable-session-registry).
 
+Completed the exit-capture gap on 2026-10-18: Dias saves exit metadata before
+removing the card, and Taskmaster registers it even if no poll saw it live.
+Unmatched sessions remain in one inbox with reversible display aging.
+
 When a new agent session is detected and assigned to a Taskmaster work trail,
 retain that registration and list it on the trail. The user should be able to
 find every registered session associated with the work and use its actual

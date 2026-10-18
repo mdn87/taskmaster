@@ -149,6 +149,21 @@ Raw resume IDs are available only on the loopback Dias listener, never the
 Surface listener. Continuous tracking does not inspect transcripts. Historical
 metadata imports require the separate, explicit command below.
 
+`SessionEnd` now saves the provider ID and hashed workspace/project context in
+Dias before removing its live card. Taskmaster consumes the durable `endedSessions`
+list on the next poll, so a session that starts and exits between polls is retained
+as inactive. Replaying an exit preserves its observation time; a live resumed
+session takes precedence over an older exit with the same ID. These records
+survive a Dias restart. An unavailable Dias host still cannot receive the advisory
+hook; this does not block the provider's shutdown.
+
+Exits use the same exact matching and operator overrides as live sessions. An
+unmatched or ambiguous session remains in Dias's **Unassigned sessions** inbox,
+where its ID can be copied. This does not create an objective or invent execution
+membership. Inactive inbox entries older than seven days are hidden by default;
+**Show older sessions** reveals them without deleting history. `/taskmaster use
+NAMESPACE/ID --session DIAS_RUN_ID` can assign a retained exit later.
+
 Registration history records provider, resume ID, first/last observation and
 each objective/provenance assignment period. Moving or clearing a session closes
 the prior period without erasing it. Unavailable feeds retain history and report
