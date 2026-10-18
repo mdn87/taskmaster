@@ -55,7 +55,7 @@ Unchanged nonmatching discovery headers may be skipped using file metadata.
 Admitted runs are always reread and verified twice. The daemon can reuse an owner
 projection only for identical verified footprint bytes, objective identity, owner
 command and pinned version; it rechecks the version once per cycle. The in-memory
-projection cache is bounded to 32 entries and 16 MiB. A changed record forces a
+projection cache is bounded to one entry per configured objective (64) and 16 MiB. A changed record forces a
 new owner projection. The first cold refresh can take longer than the poll interval;
 cycles never overlap, and status includes the current phase and measured duration.
 
