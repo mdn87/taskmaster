@@ -72,3 +72,17 @@ note revision, original note timestamp, observation time, objective, provider,
 source-binding hash and note digest. Repeated observations do not duplicate
 events. Ledger corruption or capacity exhaustion retains the old ledger and
 publishes an unavailable handoff status.
+
+## Recording a note when it is written
+
+`python -m taskmaster.handoff_hook` is an agent `PostToolUse` hook. It reads the
+hook payload on stdin and finds a written `.claude/handoff.md` or
+`.Codex/handoff.md`, either a Claude Code editor tool's file or a Codex patch
+header resolved against the payload's `cwd`. It validates the note with the
+rules above. An invalid note is returned to the agent as a blocking reason so
+the agent fixes it. A valid note at a configured source is published at once
+under the watcher's cycle lock, adding its ledger event. When the watcher holds
+that lock, the hook reports that the watcher will record the note on its
+current cycle and writes nothing. A note no trail watches is reported, not
+recorded. The hook never edits notes or configuration and always exits 0.
+`--config` defaults to the repository's `taskmaster.toml`.
