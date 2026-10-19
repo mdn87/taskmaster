@@ -1,9 +1,10 @@
 """Start a workspace trail for a project folder that no trail watches yet.
 
 A workspace trail is an objective with id `workspace`, a watch rule keyed to the
-exact folder, and the folder's `.Codex` and `.claude` handoff notes. Its annotation
-starts empty: the watcher discovers the folder's Autowork runs through the rule.
-Seeding runs here would make any run the watcher rejects fail every refresh.
+exact folder, and the folder's `.Codex` and `.claude` handoff notes. The rule is
+handoff-only: it records notes and binds sessions but claims no runs, so its
+annotation stays empty. A whole project root can hold more runs than one trail's
+64 KiB content bound allows, and its runs already belong to narrower trails.
 
 Files are written in an order where every intermediate state still loads: the
 annotation, then the objective in taskmaster.toml, then the watch rule and handoff
@@ -112,7 +113,7 @@ def ensure(config_path, root):
             watch.atomic_bytes(config_path, (text + ('' if text.endswith('\n') else '\n') + block).encode('utf-8'))
             raw['rules'].append({'namespace': namespace, 'id': OBJECTIVE_ID, 'workspace': str(root),
                                  'record': 'request-summary.json', 'anchors': [], 'project_ids': [],
-                                 'workspace_keys': [_key(root)]})
+                                 'workspace_keys': [_key(root)], 'handoff_only': True})
             for provider, folder in handoffs.FOLDERS.items():
                 raw.setdefault('handoffs', []).append({'objective': objective, 'provider': provider,
                                                        'path': str(root / folder / 'handoff.md')})

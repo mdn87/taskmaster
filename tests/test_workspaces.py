@@ -56,5 +56,15 @@ class WorkspaceTrailTests(Workspace):
         write_json(run/'request-summary.json', {'task_sha256': 'a'*64, 'workspace': str(self.root)})
         self.assertEqual(workspaces.ensure(self.cfg, first)[0], 'ops-site/workspace')
         self.assertEqual(workspaces.ensure(self.cfg, second)[0], 'ops-site-2/workspace')
+        claimed = make_run(self.store, 'run-2')
+        write_json(claimed/'request-summary.json', {'task_sha256': 'a'*64, 'workspace': str(first)})
         status = watch.tick(self.cfg, self.tmp/'watch.json', now=NOW)
         self.assertEqual(status['state'], 'running')
+        self.assertEqual(status['memberships'], {'ops/obj-1': ['run-1']})
+
+    def test_handoff_only_must_be_true(self):
+        self.settings['rules'][0]['handoff_only'] = False
+        write_json(self.tmp/'watch.json', self.settings)
+        cfg = config.load(self.cfg)
+        with self.assertRaises(watch.WatchError):
+            watch.load_settings(cfg.watch, cfg)

@@ -98,9 +98,11 @@ records the note. `/taskmaster workspace add PATH` does the same by hand.
 - Otherwise it adds objective `<folder-name>/workspace` (suffixed `-2`, `-3`, …
   on a name clash) using the store existing workspace trails use, an empty
   annotation under the watch settings' `annotations/` folder, a watch rule keyed
-  to the exact folder, and both handoff sources. The watcher then discovers the
-  folder's Autowork runs through the rule; an annotation with no runs is a valid,
-  empty trail.
+  to the exact folder with `"handoff_only": true`, and both handoff sources. A
+  handoff-only rule records notes and binds sessions but never claims runs in
+  discovery: a project root can hold more runs than one trail's 64 KiB content
+  bound allows, and those runs belong to narrower trails. An annotation with no
+  runs is a valid, empty trail.
 - Files are written annotation first, then `taskmaster.toml`, then the watch
   settings, so every intermediate state loads. Existing entries are only
   extended. If the result does not validate, both files are restored.
