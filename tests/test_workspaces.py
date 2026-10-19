@@ -62,6 +62,16 @@ class WorkspaceTrailTests(Workspace):
         self.assertEqual(status['state'], 'running')
         self.assertEqual(status['memberships'], {'ops/obj-1': ['run-1']})
 
+    def test_trail_started_after_a_refresh_is_observed_on_the_next(self):
+        run = make_run(self.store, 'run-1')
+        write_json(run/'request-summary.json', {'task_sha256': 'a'*64, 'workspace': str(self.root)})
+        self.assertEqual(watch.tick(self.cfg, self.tmp/'watch.json', now=NOW)['state'], 'running')
+        folder = self.tmp/'later'
+        folder.mkdir()
+        workspaces.ensure(self.cfg, folder)
+        status = watch.tick(self.cfg, self.tmp/'watch.json', now=NOW)
+        self.assertEqual((status['state'], status['failed_objectives']), ('running', 0))
+
     def test_handoff_only_must_be_true(self):
         self.settings['rules'][0]['handoff_only'] = False
         write_json(self.tmp/'watch.json', self.settings)

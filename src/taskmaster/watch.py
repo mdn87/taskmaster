@@ -390,7 +390,10 @@ def _tick(cfg, settings, now, owner_cache=None, recover_invalid_export=False):
             expected = set(seed) | set(previous.get('memberships', {}).get(key, []))
             if not expected.issubset(memberships.get(key, [])):
                 raise WatchError('previously verified member unavailable or no longer matches')
-        fingerprint = sha256_hex(canonical({'memberships': memberships, 'provenance': sorted(provenance, key=lambda p: p['run_id'])}))
+        # The capture holds one annotation per rule, so a trail added without
+        # runs must still produce a new capture rather than reuse one lacking it.
+        fingerprint = sha256_hex(canonical({'memberships': memberships, 'provenance': sorted(provenance, key=lambda p: p['run_id']),
+                                            'objectives': sorted(r['namespace'] + '/' + r['id'] for r in settings['rules'])}))
         generation = Path(previous['generation']) if previous.get('fingerprint') == fingerprint else state / 'captures' / uuid.uuid4().hex
         if previous.get('fingerprint') != fingerprint:
             for run_id, data in runs.items():
