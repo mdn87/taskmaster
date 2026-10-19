@@ -56,12 +56,25 @@ class HandoffHookTests(Workspace):
         self.assertIn('## What Was Done', result['reason'])
         self.assertFalse((self.tmp/'active'/'handoffs.json').exists())
 
-    def test_unwatched_note_and_other_files_are_reported_or_ignored(self):
+    def test_unwatched_note_starts_a_workspace_trail_and_is_recorded(self):
         other = self.tmp/'elsewhere'/'.claude'/'handoff.md'
         other.parent.mkdir(parents=True)
         other.write_text(NOTE, encoding='utf-8')
         result = self.run_hook({'tool_name': 'Write', 'tool_input': {'file_path': str(other)}})
-        self.assertIn('no Taskmaster trail watches this file', result['hookSpecificOutput']['additionalContext'])
+        message = result['hookSpecificOutput']['additionalContext']
+        self.assertIn('Started Taskmaster trail elsewhere/workspace for this workspace.', message)
+        self.assertIn('elsewhere/workspace: Handoff saved', message)
+        trails = {t['objective']: t['status'] for t in self.projection()['trails']}
+        self.assertEqual(trails['elsewhere/workspace'], 'saved')
+        settings = json.loads((self.tmp/'watch.json').read_text())
+        self.assertEqual(sorted(b['provider'] for b in settings['handoffs'] if b['objective'] == 'elsewhere/workspace'),
+                         ['claude', 'codex'])
+        self.assertIn('namespace = "elsewhere"', self.cfg.read_text())
+        again = self.run_hook({'tool_name': 'Write', 'tool_input': {'file_path': str(other)}})
+        self.assertNotIn('Started', again['hookSpecificOutput']['additionalContext'])
+        self.assertEqual(json.loads((self.tmp/'watch.json').read_text()), settings)
+
+    def test_other_files_are_ignored(self):
         self.assertIsNone(self.run_hook({'tool_name': 'Write', 'tool_input': {'file_path': str(self.root/'README.md')}}))
         self.assertIsNone(self.run_hook({'tool_name': 'Bash', 'tool_input': {'command': 'ls'}}))
 

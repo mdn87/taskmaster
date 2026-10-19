@@ -131,7 +131,7 @@ def _read_annotation(objective: Objective) -> tuple[bytes, list[str]]:
     run_ids = doc.get("run_ids") if isinstance(doc, dict) else None
     if not isinstance(doc, dict) or not isinstance(doc.get("objective_id"), str) \
             or set(doc) - {"objective_id", "run_ids", "interventions"} \
-            or not isinstance(run_ids, list) or not run_ids:
+            or not isinstance(run_ids, list):
         raise _Failure("required_input_invalid", "operator", "invalid")
     try:
         for run_id in run_ids:

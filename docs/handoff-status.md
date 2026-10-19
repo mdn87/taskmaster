@@ -83,6 +83,26 @@ rules above. An invalid note is returned to the agent as a blocking reason so
 the agent fixes it. A valid note at a configured source is published at once
 under the watcher's cycle lock, adding its ledger event. When the watcher holds
 that lock, the hook reports that the watcher will record the note on its
-current cycle and writes nothing. A note no trail watches is reported, not
-recorded. The hook never edits notes or configuration and always exits 0.
+current cycle and writes nothing. The hook never edits notes and always exits 0.
 `--config` defaults to the repository's `taskmaster.toml`.
+
+## Starting a workspace trail
+
+When a valid note is saved where no trail watches, the hook starts a workspace
+trail for the note's folder (the parent of `.claude` or `.Codex`) and then
+records the note. `/taskmaster workspace add PATH` does the same by hand.
+
+- If one trail's rule is already keyed to that exact folder, the folder's
+  missing `.Codex` and `.claude` notes are bound to it and nothing else changes.
+  Several matching trails are an error, never a guess.
+- Otherwise it adds objective `<folder-name>/workspace` (suffixed `-2`, `-3`, …
+  on a name clash) using the store existing workspace trails use, an empty
+  annotation under the watch settings' `annotations/` folder, a watch rule keyed
+  to the exact folder, and both handoff sources. The watcher then discovers the
+  folder's Autowork runs through the rule; an annotation with no runs is a valid,
+  empty trail.
+- Files are written annotation first, then `taskmaster.toml`, then the watch
+  settings, so every intermediate state loads. Existing entries are only
+  extended. If the result does not validate, both files are restored.
+- The 64-trail limit still applies; at the limit the note is reported, not
+  recorded, and nothing is written.

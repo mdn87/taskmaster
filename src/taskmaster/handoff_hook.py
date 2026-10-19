@@ -2,10 +2,11 @@
 
 Reads the hook payload on stdin and finds a written `.claude/handoff.md` or
 `.Codex/handoff.md`: a Claude Code editor tool's file, or a Codex patch header.
-It validates the note with the watcher's own rules and, when a trail watches
-that file, publishes the handoff projection under the watcher's cycle lock so
-the note is recorded at once. It never edits the note or Taskmaster's
-configuration, and always exits 0 so a hook failure cannot block the agent.
+It validates the note with the watcher's own rules. When no trail watches that
+file it starts a workspace trail for the note's folder (see `workspaces`), then
+publishes the handoff projection under the watcher's cycle lock so the note is
+recorded at once. It never edits the note, and always exits 0 so a hook failure
+cannot block the agent.
 """
 import argparse
 import json
@@ -14,7 +15,7 @@ from pathlib import Path
 import re
 import sys
 
-from . import config, handoffs, publication, timefmt, watch
+from . import config, handoffs, publication, sources, timefmt, watch, workspaces
 
 PATCH_HEADER = re.compile(r"\*\*\* (?:Add|Update) File: ([^\n\"']+?)(?=\\n|\n|\r|\"|'|$)")
 EDIT_TOOLS = ('Write', 'Edit', 'MultiEdit')
@@ -66,9 +67,22 @@ def record(note, cfg):
     settings = watch.load_settings(cfg.watch, cfg)
     key = watch.normalized(str(note.absolute()))
     trails = [b['objective'] for b in settings.get('handoffs', []) if watch.normalized(b['path']) == key]
+    started = ''
     if not trails:
-        return True, (f'{note} is a valid handoff note, but no Taskmaster trail watches this file, so it was not '
-                      'recorded. Mention this in the wrap-up; adding a trail is Taskmaster configuration work.')
+        try:
+            objective, changed, new = workspaces.ensure(cfg.path, note.absolute().parent.parent)
+        except (OSError, ValueError, sources.SourceError, publication.PublicationError) as exc:
+            return True, (f'{note} is a valid handoff note, but no Taskmaster trail watches this file and starting '
+                          f'one failed ({exc}), so it was not recorded. Mention this in the wrap-up.')
+        if changed:
+            started = (f'Started Taskmaster trail {objective} for this workspace. '
+                       if new else f'Bound this workspace\'s notes to Taskmaster trail {objective}. ')
+        cfg = config.load(cfg.path)
+        settings = watch.load_settings(cfg.watch, cfg)
+        trails = [b['objective'] for b in settings.get('handoffs', []) if watch.normalized(b['path']) == key]
+        if not trails:
+            return True, (f'{note} is a valid handoff note, but trail {objective} does not watch this file, so it '
+                          'was not recorded. Mention this in the wrap-up.')
     state = Path(settings['state_dir'])
     state.mkdir(parents=True, exist_ok=True)
     cycle = watch.read_json(state / 'status.json', {}).get('cycle_seconds', 0) or 0
@@ -76,11 +90,11 @@ def record(note, cfg):
         with publication.writer_lock(state / 'cycle'):
             result = handoffs.publish(settings, now, cycle)
     except publication.PublicationError:
-        return True, (f'{note} is a valid handoff note. The Taskmaster watcher is mid-cycle and will record it '
+        return True, (f'{started}{note} is a valid handoff note. The Taskmaster watcher is mid-cycle and will record it '
                       f'within about a minute (trail {", ".join(trails)}).')
     by_trail = {t['objective']: t['status'] for t in result['trails']}
     statuses = ', '.join(f'{t}: Handoff {by_trail.get(t, "unavailable")}' for t in trails)
-    return True, f'Recorded {note} in Taskmaster ({statuses}).'
+    return True, f'{started}Recorded {note} in Taskmaster ({statuses}).'
 
 
 def main(argv=None):
