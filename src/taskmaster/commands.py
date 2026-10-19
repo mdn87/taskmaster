@@ -31,7 +31,8 @@ def execute(config_path, text):
                              '/taskmaster sessions --all [--trail NAMESPACE/ID] [--format report]',
                              '/taskmaster use NAMESPACE/ID [--session DIAS_RUN_ID]',
                              '/taskmaster clear [--session DIAS_RUN_ID]',
-                             '/taskmaster auto [--session DIAS_RUN_ID]', '/taskmaster handoffs', '/taskmaster refresh']}
+                             '/taskmaster auto [--session DIAS_RUN_ID]', '/taskmaster handoffs', '/taskmaster refresh',
+                             '/taskmaster workspace add PATH']}
     cfg = config.load(config_path)
     if cfg.watch is None:
         raise watch.WatchError('watch is not configured')
@@ -40,6 +41,13 @@ def execute(config_path, text):
     command = tokens.pop(0)
     if command == 'refresh' and not tokens:
         return watch.tick(config_path, cfg.watch)
+    if command == 'workspace' and len(tokens) == 2 and tokens[0] == 'add':
+        from . import workspaces
+        try:
+            objective, changed, new = workspaces.ensure(config_path, tokens[1])
+        except workspaces.WorkspaceError as exc:
+            raise watch.WatchError(str(exc)) from exc
+        return {'objective': objective, 'started': new, 'notes_bound': changed}
     if command == 'trails' and not tokens:
         return {'trails': [{'objective': r['namespace'] + '/' + r['id'],
                             'workspace': r['workspace'], 'project_ids': r['project_ids']} for r in settings['rules']]}
