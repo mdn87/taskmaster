@@ -447,19 +447,34 @@ def _tick(cfg, settings, now, owner_cache=None, recover_invalid_export=False):
     return status
 
 
+def log(state, event, detail=''):
+    # Append-only lifetime trail: one line per daemon start and exit, one per
+    # failed tick. An exit with no 'stopping' line means the process was
+    # killed from outside rather than leaving through Python.
+    line = f'{timefmt.now()} {event} pid={os.getpid()}' + (f' {detail}' if detail else '')
+    with (Path(state) / 'watch.log').open('a', encoding='ascii', errors='replace') as stream:
+        stream.write(line + '\n')
+
+
 def serve(config_path, settings_path):
     cfg = config.load(config_path)
     settings = load_settings(settings_path, cfg)
     state = Path(settings['state_dir'])
     state.mkdir(parents=True, exist_ok=True)
     with publication.writer_lock(state / 'daemon'):
+        log(state, 'started', f"interval={settings['interval_seconds']}s")
         owner_cache = {}
-        while True:
-            started = time.monotonic()
-            try:
-                tick(config_path, settings_path, owner_cache=owner_cache)
-            except Exception as exc:
-                # Retry on next cycle, preserving the last export and its clock.
-                atomic_json(state / 'last-error.json', {'at': timefmt.now(), 'error': type(exc).__name__})
-            settings = load_settings(settings_path, config.load(config_path))
-            time.sleep(max(1, settings['interval_seconds'] - (time.monotonic() - started)))
+        try:
+            while True:
+                started = time.monotonic()
+                try:
+                    tick(config_path, settings_path, owner_cache=owner_cache)
+                except Exception as exc:
+                    # Retry on next cycle, preserving the last export and its clock.
+                    atomic_json(state / 'last-error.json', {'at': timefmt.now(), 'error': type(exc).__name__})
+                    log(state, 'tick failed', f'{type(exc).__name__}: {exc}')
+                settings = load_settings(settings_path, config.load(config_path))
+                time.sleep(max(1, settings['interval_seconds'] - (time.monotonic() - started)))
+        except BaseException as exc:
+            log(state, 'stopping', f'{type(exc).__name__}: {exc}')
+            raise

@@ -14,7 +14,7 @@ from taskmaster import watch
 from taskmaster.commands import execute
 
 
-class WatchTests(Workspace):
+class WatchWorkspace(Workspace):
     def setUp(self):
         super().setUp()
         self.annotate(['seed'])
@@ -31,6 +31,8 @@ class WatchTests(Workspace):
         write_json(path / 'request-summary.json', {'task_sha256': 'a' * 64, 'workspace': workspace})
         return path
 
+
+class WatchTests(WatchWorkspace):
     def test_new_run_is_admitted_only_by_exact_scope(self):
         self.run_record()
         first = watch.tick(self.config_path, self.settings, now=NOW)
@@ -197,3 +199,29 @@ class WatchTests(Workspace):
         self.assertEqual(denied.returncode, 4)
         recovered = subprocess.run(command + ['--recover-invalid-export'], capture_output=True)
         self.assertEqual(recovered.returncode, 0, recovered.stderr)
+
+
+class ServeLogTests(WatchWorkspace):
+    """The daemon leaves a trail of its own lifetime so an unexplained exit is diagnosable."""
+
+    def serve_until_sleep(self, tick_side_effect=None):
+        class Stop(Exception):
+            pass
+        with patch.object(watch, 'tick', side_effect=tick_side_effect) as ticked, \
+                patch.object(watch.time, 'sleep', side_effect=Stop):
+            with self.assertRaises(Stop):
+                watch.serve(self.config_path, self.settings)
+        self.assertEqual(ticked.call_count, 1)
+        return (self.tmp / 'watch-state' / 'watch.log').read_text(encoding='ascii').splitlines()
+
+    def test_serve_logs_start_and_exit(self):
+        lines = self.serve_until_sleep()
+        self.assertEqual(len(lines), 2)
+        self.assertRegex(lines[0], r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z started pid=\d+ interval=30s$')
+        self.assertRegex(lines[1], r'Z stopping pid=\d+ Stop: $')
+
+    def test_serve_logs_each_failed_tick(self):
+        lines = self.serve_until_sleep(tick_side_effect=watch.WatchError('boom'))
+        self.assertEqual(len(lines), 3)
+        self.assertRegex(lines[1], r'Z tick failed pid=\d+ WatchError: boom$')
+        self.assertEqual(json.loads((self.tmp / 'watch-state' / 'last-error.json').read_text())['error'], 'WatchError')
