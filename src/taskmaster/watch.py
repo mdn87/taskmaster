@@ -95,8 +95,10 @@ def load_settings(path, cfg):
     seen = set()
     for rule in rules:
         required = {'namespace', 'id', 'workspace', 'record', 'anchors', 'project_ids'}
-        if not isinstance(rule, dict) or not required <= set(rule) or set(rule) - required - {'workspace_keys'}:
+        if not isinstance(rule, dict) or not required <= set(rule) or set(rule) - required - {'workspace_keys', 'handoff_only'}:
             raise WatchError('invalid membership rule')
+        if rule.get('handoff_only', True) is not True:
+            raise WatchError('handoff_only may only be true')
         if not isinstance(rule['namespace'], str) or not isinstance(rule['id'], str):
             raise WatchError('invalid objective identity')
         key = (rule['namespace'], rule['id'])
@@ -235,7 +237,8 @@ def discover(settings, cache=None):
                         if total > sources.MAX_FOOTPRINT_BYTES:
                             raise WatchError('scan over bounds')
                         docs[name] = owner_json(raw)
-                candidates = [r for r in settings['rules'] if matches(r, docs)]
+                # A handoff-only trail records notes and binds sessions; it never claims runs.
+                candidates = [r for r in settings['rules'] if not r.get('handoff_only') and matches(r, docs)]
                 if not candidates:
                     next_cache[entry.name] = headers
                     continue
