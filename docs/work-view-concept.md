@@ -397,6 +397,17 @@ same venv from the host's lugos checkout (`/srv/lugos/repos/lugos/autowork`,
 version 0.1.0, which `[autowork]` pins). Host paths in the configuration are
 absolute.
 
+On 2026-10-26 `current` moved to release `befed7a2` (main after Batch 3),
+shipped as a `git archive` of `src` and `pyproject.toml` like the
+`context-20261020` copy before it, and reusing the `e924053a` venv, so the
+installed Autowork, which still emits outcome schema 1, is unchanged.
+`taskmaster-context-collect.service` still names `context-20261020` directly;
+its code is unchanged in this release. Rollback is pointing `current` back to
+`context-20261020` and restarting `taskmaster-watch.service`. Reinstalling
+Autowork from the host's lugos checkout would move it to outcome schema 2,
+which this release accepts; every trail digest then changes once, in
+`owner_schema_version` alone.
+
 **Process model.** The service units follow `cirra-worker.service`:
 `User=matt`, `ProtectSystem=strict`, `ProtectHome=tmpfs`, `UMask=0077` and
 `ReadWritePaths` limited to what each unit writes. `taskmaster-watch.service`
