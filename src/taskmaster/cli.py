@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import builder, config as config_mod, export, publication, readmodel, report, timefmt, watch
+from . import brief, builder, config as config_mod, export, publication, readmodel, report, timefmt, watch
 
 EXIT_OK, EXIT_CONFIG, EXIT_MISSING, EXIT_INVALID, EXIT_OBJECTIVE_FAILED = 0, 2, 3, 4, 5
 
@@ -104,6 +104,25 @@ def cmd_watch(args) -> int:
     return EXIT_OK
 
 
+def cmd_brief(args) -> int:
+    doc, _ = export.load(Path(args.export))
+    value = brief.build(doc, args.namespace, args.id, _now(args.now))
+    if value is None:
+        _err("objective not found in export")
+        return EXIT_MISSING
+    if args.json:
+        _write(_json_bytes(value))
+        return EXIT_OK
+    notes = []
+    if args.config:
+        from .commands import handoff_notes
+        cfg = config_mod.load(args.config)
+        if cfg.watch is not None:
+            notes = handoff_notes(watch.read_json(Path(cfg.watch)), f"{args.namespace}/{args.id}")
+    _write(brief.render(value, notes).encode("utf-8"))
+    return EXIT_OK
+
+
 def cmd_slash(args) -> int:
     from .commands import execute
     value = execute(args.config, args.text)
@@ -172,6 +191,15 @@ def parser() -> argparse.ArgumentParser:
     fmt.add_argument("--format", choices=("json", "report"))
     s.add_argument("--now")
     s.set_defaults(func=cmd_show, format="json")
+
+    br = sub.add_parser("brief", help="start-of-session brief for one objective from a saved export")
+    br.add_argument("--export", required=True)
+    br.add_argument("--namespace", required=True)
+    br.add_argument("--id", required=True)
+    br.add_argument("--now")
+    br.add_argument("--json", action="store_true", help="taskmaster.brief/v1, which never carries host paths")
+    br.add_argument("--config", help="add this host's handoff note paths to the text output")
+    br.set_defaults(func=cmd_brief)
 
     v = sub.add_parser("verify-export", help="run the reader acceptance rules on an export")
     v.add_argument("--export", required=True)

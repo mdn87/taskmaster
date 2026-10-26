@@ -22,6 +22,45 @@ def current_session():
     raise watch.WatchError('current session identity unavailable; specify --session from /taskmaster sessions')
 
 
+def handoff_notes(settings, objective):
+    """Local (provider, path) pairs for an objective's handoff notes that exist on this host."""
+    rows = settings.get('handoffs') if isinstance(settings.get('handoffs'), list) else []
+    return sorted((b['provider'], b['path']) for b in rows
+                  if isinstance(b, dict) and b.get('objective') == objective
+                  and isinstance(b.get('path'), str) and isinstance(b.get('provider'), str) and Path(b['path']).is_file())
+
+
+def local_brief(cfg, tokens, cwd=None):
+    """Render the brief here, never on the context owner: handoff paths are local (decision D3)."""
+    from . import brief, export
+    as_json = '--json' in tokens
+    tokens = [t for t in tokens if t != '--json']
+    settings_path = Path(cfg.watch)
+    settings = watch.read_json(settings_path)
+    if not isinstance(settings, dict) or not isinstance(settings.get('export'), str):
+        raise watch.WatchError('watch settings name no export to brief from')
+    rules = settings.get('rules') if isinstance(settings.get('rules'), list) else []
+    if len(tokens) == 1 and tokens[0].count('/') == 1:
+        objective = tokens[0]
+    elif not tokens:
+        here = watch.normalized(str(Path(cwd or os.getcwd()).absolute()))
+        matches = sorted(r['namespace'] + '/' + r['id'] for r in rules
+                         if isinstance(r, dict) and isinstance(r.get('workspace'), str)
+                         and watch.normalized(r['workspace']) == here)
+        if len(matches) != 1:
+            raise watch.WatchError('this directory matches ' + (', '.join(matches) or 'no trail')
+                                   + '; use /taskmaster brief NAMESPACE/ID')
+        objective = matches[0]
+    else:
+        raise watch.WatchError('expected brief [NAMESPACE/ID] [--json]')
+    doc, _ = export.load(settings_path.parent / settings['export'])
+    namespace, objective_id = objective.split('/')
+    value = brief.build(doc, namespace, objective_id, timefmt.now())
+    if value is None:
+        raise watch.WatchError(f'{objective} is not in the export')
+    return value if as_json else brief.render(value, handoff_notes(settings, objective))
+
+
 def execute(config_path, text):
     tokens = shlex.split(text)
     if tokens and tokens[0] in ('/taskmaster', 'taskmaster'):
@@ -32,10 +71,13 @@ def execute(config_path, text):
                              '/taskmaster use NAMESPACE/ID [--session DIAS_RUN_ID]',
                              '/taskmaster clear [--session DIAS_RUN_ID]',
                              '/taskmaster auto [--session DIAS_RUN_ID]', '/taskmaster handoffs', '/taskmaster refresh',
+                             '/taskmaster brief [NAMESPACE/ID] [--json]',
                              '/taskmaster workspace add PATH']}
     cfg = config.load(config_path)
     if cfg.watch is None:
         raise watch.WatchError('watch is not configured')
+    if tokens[0] == 'brief':
+        return local_brief(cfg, tokens[1:])
     from .remote_owner import client_settings, forward_command
     client = client_settings(cfg.watch)
     if client is not None:

@@ -167,14 +167,29 @@ class Failures(Workspace):
         self.set_behavior()
         self.assertEqual(self.failed_codes(self.config(version="9.9.9")), ["owner_version_mismatch"])
 
-    def test_owner_schema_2_is_accepted(self):
+    def test_owner_schema_2_needs_configuration(self):
         make_run(self.store, "r1")
         self.annotate(["r1"])
         self.set_behavior(mode="schema2")
-        entry, content = only(build(self.config()))
+        self.assertEqual(self.failed_codes(self.config()), ["required_schema_unsupported"])
+        entry, content = only(build(self.config(schemas=[1, 2])))
         self.assertNotEqual(entry["observation"]["attempt_status"], "failed")
         autowork = [s for s in content["sources"] if s["owner"] == "autowork"][0]
         self.assertEqual(autowork["owner_schema_version"], 2)
+
+    def test_unknown_fields_in_an_admitted_schema_are_ignored(self):
+        make_run(self.store, "r1")
+        self.annotate(["r1"])
+        expected = only(build(self.config()))[0]["trail_sha256"]
+        self.set_behavior(mode="extra-fields")
+        entry, _ = only(build(self.config()))
+        self.assertEqual(entry["observation"]["attempt_status"], "ok")
+        self.assertEqual(entry["trail_sha256"], expected)
+
+    def test_admitted_schemas_must_be_supported(self):
+        for value in ([3], [], [1, 1], ["2"], [True]):
+            with self.subTest(value=value), self.assertRaises(config.ConfigError):
+                config.load(self.config(schemas=value))
 
     def test_ambiguous_run(self):
         make_run(self.store, "r1")

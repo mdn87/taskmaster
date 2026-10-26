@@ -21,9 +21,11 @@ from .strictjson import StrictJSONError, loads
 
 MAX_OWNER_OUTPUT = 16 * 1024 * 1024
 _VERSION = re.compile(r"version (\S+)")
-# Version 2 only adds usage fields, which Taskmaster does not read; the attempt
-# fields the builder consumes are unchanged.
-OUTCOME_SCHEMA_VERSIONS = (1, 2)
+# Outcome schemas this adapter can read. Version 2 only adds usage fields, which
+# Taskmaster does not read; the attempt fields the builder consumes are unchanged.
+# Unknown fields inside an admitted schema are ignored. Configuration chooses
+# which of these to admit (`autowork.outcome_schema_versions`, default [1]).
+SUPPORTED_OUTCOME_SCHEMAS = (1, 2)
 
 
 def _run(argv: list[str], timeout: int) -> subprocess.CompletedProcess:
@@ -108,8 +110,8 @@ def outcome(owner: OwnerCommand, runs_root: Path, objective_id: str, run_ids: li
         raise SourceError("required_input_invalid", f"owner output: {exc.reason}") from None
     if not isinstance(doc, dict):
         raise SourceError("required_input_invalid", "owner output is not an object")
-    if doc.get("schema_version") not in OUTCOME_SCHEMA_VERSIONS or isinstance(doc.get("schema_version"), bool):
-        raise SourceError("required_schema_unsupported", "owner output schema_version is not supported")
+    if type(doc.get("schema_version")) is not int or doc["schema_version"] not in owner.outcome_schema_versions:
+        raise SourceError("required_schema_unsupported", "owner output schema_version is not admitted by configuration")
     attempts = doc.get("attempts")
     if doc.get("objective_id") != objective_id or not isinstance(attempts, list) \
             or not all(isinstance(a, dict) and isinstance(a.get("run_id"), str) for a in attempts):

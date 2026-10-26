@@ -67,6 +67,8 @@ class OwnerCommand:
     argv: tuple[str, ...]
     version: str
     timeout_seconds: int
+    # Outcome schema versions the operator admits; a new owner schema needs a configuration change.
+    outcome_schema_versions: tuple[int, ...] = (1,)
 
 
 @dataclass
@@ -192,7 +194,7 @@ def _build(config_path: Path, raw: dict) -> Config:
         raise ConfigError("max_age_seconds must be an integer from 1 to 31536000")
 
     aw = raw["autowork"]
-    _table(aw, "autowork", {"command", "version", "timeout_seconds"}, {"command", "version"})
+    _table(aw, "autowork", {"command", "version", "timeout_seconds", "outcome_schema_versions"}, {"command", "version"})
     command = aw["command"]
     if not isinstance(command, list) or not command or not all(isinstance(a, str) and a for a in command):
         raise ConfigError("autowork.command must be a non-empty list of strings")
@@ -202,7 +204,13 @@ def _build(config_path: Path, raw: dict) -> Config:
     timeout = aw.get("timeout_seconds", 120)
     if not isinstance(timeout, int) or isinstance(timeout, bool) or not 1 <= timeout <= 3600:
         raise ConfigError("autowork.timeout_seconds must be 1..3600")
-    owner = OwnerCommand((first, *command[1:]), validate_token(aw["version"], "autowork.version"), timeout)
+    from .autowork import SUPPORTED_OUTCOME_SCHEMAS
+    schemas = aw.get("outcome_schema_versions", [1])
+    if not isinstance(schemas, list) or not schemas or len(set(schemas)) != len(schemas)             or not all(type(v) is int and v in SUPPORTED_OUTCOME_SCHEMAS for v in schemas):
+        raise ConfigError("autowork.outcome_schema_versions must list distinct supported versions "
+                          f"from {list(SUPPORTED_OUTCOME_SCHEMAS)}")
+    owner = OwnerCommand((first, *command[1:]), validate_token(aw["version"], "autowork.version"), timeout,
+                         tuple(sorted(schemas)))
 
     aliases: set[str] = set()
 

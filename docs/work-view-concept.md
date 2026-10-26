@@ -530,9 +530,7 @@ separate read-only process, `cirra serve-audit-reads` (unit
 `cirra-audit-reads.service`), on 127.0.0.1:8797. It loads no service
 configuration and no credentials; `serve-webhooks` is unchanged.
 
-1. Whether revision-join membership should stay `candidate` until an
-   annotation or citing run confirms it, as proposed, or whether a
-   same-repository, same-head join may be `resolved` on its own.
-2. Whether the local agent-facing brief may carry the handoff note path.
-3. Whether Cirra should trigger a Taskmaster refresh (a webhook or a beacon),
-   or whether the watcher's 30-second discovery is enough.
+Decided 2026-10-26 (docs/decisions/2026-10-26-open-decisions.md): revision-join
+membership stays `candidate` until an annotation or citing run confirms it; the
+local brief may show handoff note paths in its text rendering only; Cirra does
+not trigger refreshes, and the watcher's 30-second discovery stays.

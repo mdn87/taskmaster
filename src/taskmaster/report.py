@@ -50,6 +50,9 @@ def render(view: dict) -> bytes:
             lines.append("  content: none")
             continue
         lines.append("  links: " + " ".join(f"{s}={counts['links'][s]}" for s in LINK_STATUSES))
+        if counts["links"]["candidate"]:
+            # Decision D2: a candidate is a revision join no owner record confirms.
+            lines.append("  candidate_links: joined by revision only; no owner record confirms them")
         gaps = " ".join(f"{code}={n}" for code, n in counts["gaps"].items())
         lines.append(f"  gaps: {gaps or 'none'}")
         cov = " ".join(f"{a}={s}" for a, s in counts["coverage"].items())

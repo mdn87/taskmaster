@@ -46,6 +46,7 @@ class RecordedCorpus(unittest.TestCase):
             "[autowork]",
             f"command = {json.dumps([str(OWNER)])}",
             'version = "0.1.0"',
+            "outcome_schema_versions = [1, 2]",
             "[[stores]]",
             'alias = "fixture"',
             'owner = "autowork"',
