@@ -93,3 +93,24 @@ schema 1. The server's Autowork checkout is newer. Reinstalling changes every
 trail digest once (the recorded schema version only), which consumers show as
 new content. Options: (a) reinstall now, while the change is understood;
 (b) wait until something needs a schema 2 field.
+
+## Recommendations
+
+From one `claude-fable` review (Autowork run `20261026-043345-cross-review`,
+effort high, 13 findings). These are recommendations, not decisions; nothing
+below is built yet.
+
+| Item | Recommendation | What would change it |
+|---|---|---|
+| D1 | (b), but brief v1 carries only facts the export and Slice 1 already hold: status, open findings, recent runs, membership gaps. Disposition and next action wait for the work view. When the work view comes, consider shipping it first without the next-action field. | Choose (a) if a brief without a next action isn't worth opening; (c) if no agent session reads the brief within a couple of weeks. |
+| D2 | (a), keep `candidate` until an owner record confirms it, and label candidate links clearly in all three consumers. Better fixes are on the owner side: Autowork citing audit ids in assignments, or Cirra recording the objective. | Cirra or Autowork recording the link, so `resolved` needs no inference. |
+| D3 | (a), but the path is added at render time by the local CLI only, never written into `taskmaster.brief/v1` or the export. Codex and Gemini don't share the `.claude/handoff.md` convention. | The brief file being copied to the server or Dias, or every tool using one handoff location. |
+| D4 | (a), keep 30-second discovery. The second-or-two benefit was overstated: the runs side is a replica pulled every 5 minutes, and Dias reads its own copy every 30 seconds. A read-only middle option is polling Cirra more often from the Slice 1 adapter. | An in-session agent workflow that needs audit gates faster than 30 seconds. |
+| D5 | (b), list the accepted outcome `schema_version` values in configuration, and ask Autowork to bump its version on schema changes. Record the policy: unknown fields inside an accepted schema are ignored, and a new schema version needs a configuration change. | Autowork enforcing version bumps with its own test, which would make (a) enough. |
+| D6 | (a), reinstall now, right after a morning report. | Fable also suggested leaving the recorded schema version out of the trail digest. That conflicts with plan section 3, which puts the pinned owner schema in source records on purpose, so it needs its own decision. |
+
+Corrections to this brief that the review raised: D1's option (b) was not
+separable as written, because "gaps, next action" are work-view outputs. The
+brief's data source and worst-case age (up to about 5 minutes) should be
+stated, and the brief should print the export's generation time. D4's latency
+claim was overstated.
