@@ -419,6 +419,12 @@ with `outcome_schema_versions = [1, 2]` (backup:
 `taskmaster.toml.before-20261026-schema-pin`). Rollback is that backup plus
 pointing `current` at `befed7a2` and restarting `taskmaster-watch.service`.
 
+The subsequent [deployment cleanup](decisions/2026-10-26-deployment-cleanup.md)
+added a collector drop-in so its working directory, Python and `PYTHONPATH` all
+follow `current` too. The original `context-20261020` unit remains available for
+rollback. The same cleanup deployed Dias's candidate label and fixed its
+session-exit reader so the collector receives current session context.
+
 **Process model.** The service units follow `cirra-worker.service`:
 `User=matt`, `ProtectSystem=strict`, `ProtectHome=tmpfs`, `UMask=0077` and
 `ReadWritePaths` limited to what each unit writes. `taskmaster-watch.service`

@@ -1,6 +1,7 @@
 # Open Taskmaster decisions, 2026-10-26
 
-Status: awaiting a recommendation. The operator asked for a reviewer to
+Status: decisions adopted and implemented; see the deployment cleanup record
+in `2026-10-26-deployment-cleanup.md`. The original request below asked a reviewer to
 recommend what to do on each item below, because they don't have the context
 to choose. Each item states the facts, the options and what each option costs.
 A recommendation should pick one option per item, give the reason in a few
@@ -144,3 +145,7 @@ source record, and Dias's reader rejects any change to that closed schema, so
 this needs its own cross-repository contract change rather than a one-line
 edit. The reinstall's one-time digest change was accepted instead, as the
 review's D6 recommendation allows.
+
+The remaining Dias deployment and collector release alignment were completed in
+the [deployment cleanup](2026-10-26-deployment-cleanup.md). That work also found
+and fixed Dias's inverted session-exit schema check, restoring live session context.
