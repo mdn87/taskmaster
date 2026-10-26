@@ -1,6 +1,6 @@
 """Stand-in for `autowork` driven by a behavior file (argv[1]).
 
-Modes: normal, fail, schema2, schema3, garbage, mutate-store, mutate-policy.
+Modes: normal, fail, schema2, schema3, extra-fields, garbage, mutate-store, mutate-policy.
 """
 
 import json
@@ -50,8 +50,13 @@ def main() -> int:
             "probe": {"status": "cache_reference" if run_id in behavior.get("linked", {}) else "unrecorded",
                       "linked_run_ids": behavior.get("linked", {}).get(run_id, [])},
         })
+    if mode == "extra-fields":
+        for attempt in attempts:
+            attempt["unknown_attempt_field"] = {"nested": [1, 2]}
     doc = {"schema_version": {"schema2": 2, "schema3": 3}.get(mode, 1), "objective_id": annotation["objective_id"],
            "run_ids": annotation["run_ids"], "attempts": attempts, "interventions": [], "summary": {}, "usage": {}}
+    if mode == "extra-fields":
+        doc["unknown_top_level_field"] = "ignored"
     sys.stdout.write(json.dumps(doc))
     return 0
 

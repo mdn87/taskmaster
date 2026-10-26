@@ -37,6 +37,13 @@ the binding matches. To annotate a Dias chip, add an explicit `[[chips]]` table
 with `project_id`, `chip_id`, `namespace`, and `objective`; the last two identify
 the configured objective. This does not assert the chip exists.
 
+`autowork.outcome_schema_versions` lists the `campaign outcome` schema versions
+the operator admits (default `[1]`; this release can read 1 and 2). Autowork
+moved to schema 2 without changing its reported version, so admitting a new
+schema is a visible configuration change rather than a code decision. Unknown
+fields inside an admitted schema are ignored. Output in a schema that is not
+listed fails the objective with `required_schema_unsupported`.
+
 The saved-corpus manifest is `taskmaster.corpus-manifest/v1`, containing
 `captured_at` (UTC timestamp or null) and `files` (relative paths to SHA-256
 digests). Produce it from an explicitly prepared corpus using
@@ -74,7 +81,9 @@ becomes a `git` revision reference; Taskmaster does not open the repository. A
 instead of `url`; it exists for fixtures. The store is optional: an unreachable
 route leaves the entry `partial` with `optional_source_unavailable` on that source.
 
-A revision join reaches `candidate` status. To resolve it, the annotation may list
+A revision join reaches `candidate` status, and stays there until an owner record
+confirms it (decision D2). The brief, the morning report and Dias all label a
+candidate as a revision join that no owner record confirms. To resolve it, the annotation may list
 `audit_attempts` (Cirra attempt ids) or `finding_items` (derived item ids, the
 SHA-256 of the canonical `[repository_key, finding_key]` pair), and a run's
 assignment may cite `finding_items`. Cirra's gate verdict, conclusion and waiver
@@ -89,6 +98,27 @@ taskmaster show --export export.json --all --json
 taskmaster show --export export.json --namespace pilot --id first-trail --json
 taskmaster verify-export --export export.json
 ```
+
+### Start-of-session brief
+
+```text
+taskmaster brief --export export.json --namespace pilot --id first-trail [--json] [--config taskmaster.toml]
+/taskmaster brief [NAMESPACE/ID] [--json]
+```
+
+The brief summarizes one objective from the saved export: evidence age and
+freshness, the newest runs, open Cirra findings, audit gates, link counts with
+candidates named, and gap counts. It has no disposition or recommended next
+action (decision D1). The slash form picks the trail whose watched workspace is
+the current directory, reads the export named by the watch settings, and always
+renders on this host, even when a remote context owner is configured. In text
+form it lists the objective's handoff note paths that exist on this host; the
+`taskmaster.brief/v1` JSON never carries a host path (decision D3). The brief
+prints when its evidence was checked and the export's publication time. On the
+lugos-host deployment, runs reach the export through a replica pulled every
+five minutes and a watcher that runs every 30 seconds, and the workstation copy
+is pulled every 30 seconds, so a run can be up to about six minutes old before
+it appears.
 
 Use `--now YYYY-MM-DDTHH:MM:SSZ` for deterministic comparisons. Freshness describes
 evidence age and failure state, not completion or permission. Null evidence time

@@ -114,3 +114,33 @@ separable as written, because "gaps, next action" are work-view outputs. The
 brief's data source and worst-case age (up to about 5 minutes) should be
 stated, and the brief should print the export's generation time. D4's latency
 claim was overstated.
+
+## Decisions taken
+
+On 2026-10-26 the operator adopted the review's recommendations in full ("do
+everything fable said"). What was done:
+
+- D1: `taskmaster brief` and `/taskmaster brief` render `taskmaster.brief/v1`
+  from the saved export: evidence age and freshness, newest runs, open findings,
+  audit gates, link and gap counts. No disposition or next action. The work view
+  is not built; when it is, it should first ship without the next-action field.
+- D2: revision joins stay `candidate`. The brief, the morning report block
+  (`candidate_links:` line) and Dias's Trails view (mdn87/dias#72) explain a
+  candidate as a revision join no owner record confirms.
+- D3: handoff note paths appear only in the brief's local text rendering, which
+  never runs on the context owner. The JSON form and the export carry no path.
+- D4: no change; the watcher keeps 30-second discovery.
+- D5: `autowork.outcome_schema_versions` in configuration (default `[1]`) admits
+  outcome schemas; unknown fields inside an admitted schema are ignored and a
+  fixture covers that. The request for Autowork to bump its version on schema
+  changes was filed as mdn87/lugos#648.
+- D6: the server's Autowork was reinstalled from its lugos checkout into a new
+  release venv, so it emits schema 2, and the server configuration admits
+  `[1, 2]`.
+
+Not done: removing the owner schema version from the trail digest (finding
+D6-digest-design). Plan section 3 makes the pinned owner schema part of each
+source record, and Dias's reader rejects any change to that closed schema, so
+this needs its own cross-repository contract change rather than a one-line
+edit. The reinstall's one-time digest change was accepted instead, as the
+review's D6 recommendation allows.

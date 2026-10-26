@@ -79,7 +79,7 @@ class Workspace(unittest.TestCase):
         return calls.read_text(encoding="ascii").splitlines() if calls.exists() else []
 
     def config(self, *, annotation="annotation.json", policy=None, chips=(), mode="live", manifest=None,
-               version="0.1.0", label=None, audit=None) -> Path:
+               version="0.1.0", label=None, audit=None, schemas=None) -> Path:
         """`audit` adds a cirra store "audits" (its TOML keys besides alias, owner and repository) to the objective."""
         command = json.dumps([sys.executable, str(FAKE_OWNER), str(self.behavior)])
         lines = [
@@ -88,6 +88,7 @@ class Workspace(unittest.TestCase):
             "[autowork]",
             f"command = {command}",
             f'version = "{version}"',
+            *([f"outcome_schema_versions = {list(schemas)}"] if schemas is not None else []),
             "[[stores]]",
             'alias = "runs"',
             'owner = "autowork"',
