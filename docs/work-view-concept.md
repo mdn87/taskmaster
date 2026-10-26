@@ -408,6 +408,17 @@ Autowork from the host's lugos checkout would move it to outcome schema 2,
 which this release accepts; every trail digest then changes once, in
 `owner_schema_version` alone.
 
+Later on 2026-10-26 `current` moved to release `8538d593` (decisions D1-D5),
+this time with its own venv: Autowork is installed editable from a snapshot of
+the host's lugos checkout vendored into the release (`vendor/autowork`, revision
+in `vendor/AUTOWORK_REVISION`), because current Autowork reads its model catalog
+from the repository layout and does not run as a plain installed package, and
+an editable install of the live checkout would change under Taskmaster on every
+pull. That Autowork emits outcome schema 2, which the host configuration admits
+with `outcome_schema_versions = [1, 2]` (backup:
+`taskmaster.toml.before-20261026-schema-pin`). Rollback is that backup plus
+pointing `current` at `befed7a2` and restarting `taskmaster-watch.service`.
+
 **Process model.** The service units follow `cirra-worker.service`:
 `User=matt`, `ProtectSystem=strict`, `ProtectHome=tmpfs`, `UMask=0077` and
 `ReadWritePaths` limited to what each unit writes. `taskmaster-watch.service`
