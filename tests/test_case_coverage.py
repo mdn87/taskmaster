@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "taskmaster.batch2-cases/v1"
 PUBLICATION_FIXTURE = ROOT / "fixtures/batch2/publication/cases.json"
 REPORT_HELPER_FIXTURE = ROOT / "fixtures/batch2/report-helper/cases.json"
+BATCH3_SCHEMA = "taskmaster.batch3-cases/v1"
+BATCH3_FIXTURE = ROOT / "fixtures/batch3/cases.json"
 
 # Refresh publication, the writer lock, sharing violations, invalid-export
 # recovery and whole-file reads. The CLI tests start a new interpreter per
@@ -157,6 +159,69 @@ REPORT_HELPER = {
 }
 REPORT_HELPER_UNCOVERED = {}
 
+# Batch 3 edge cases. Several were already executed by Batch 1 and 2 tests;
+# the rest are in test_batch3_edges.
+BATCH3 = {
+    "b3-reworded-retries": [
+        "tests.test_batch3_edges.Membership.test_reworded_retries_resolve_only_by_explicit_membership",
+        "tests.test_corpus.RecordedCorpus.test_trail",
+    ],
+    "b3-duplicate-id-across-stores": [
+        "tests.test_batch3_edges.Membership.test_duplicate_ids_across_stores_never_cross",
+    ],
+    "b3-duplicate-id-within-store": [
+        "tests.test_builder.Failures.test_ambiguous_run",
+    ],
+    "b3-malformed-record": [
+        "tests.test_batch3_edges.RunRecords.test_malformed_record_fails_the_objective",
+    ],
+    "b3-duplicate-key-record": [
+        "tests.test_batch3_edges.RunRecords.test_duplicate_key_record_fails_instead_of_hiding_a_field",
+    ],
+    "b3-oversized-record": [
+        "tests.test_batch3_edges.RunRecords.test_oversized_record_fails_before_parsing",
+    ],
+    "b3-run-id-case": [
+        "tests.test_batch3_edges.Identity.test_run_id_case_is_exact",
+    ],
+    "b3-unicode-run-id": [
+        "tests.test_batch3_edges.Identity.test_unicode_run_id_is_not_normalized",
+    ],
+    "b3-unicode-label": [
+        "tests.test_batch3_edges.Identity.test_unicode_label_is_published_verbatim",
+        "tests.test_contracts.Identity.test_display_escapes_invisible_and_separators",
+    ],
+    "b3-required-source-changes": [
+        "tests.test_builder.Failures.test_required_churn_retries_once_then_fails",
+        "tests.test_core_regressions.ObjectiveIsolation.test_annotation_churn_is_retried_then_retains",
+    ],
+    "b3-optional-source-changes": [
+        "tests.test_builder.Policy.test_policy_churn_is_partial",
+        "tests.test_core_regressions.ObjectiveIsolation.test_single_policy_change_retries_to_a_stable_observation",
+    ],
+    "b3-no-previous-content-failure": [
+        "tests.test_builder.Failures.test_owner_failures",
+        "tests.test_merge_export.Freshness.test_never_successful",
+    ],
+    "b3-privacy-filtering": [
+        "tests.test_batch3_edges.Privacy.test_unallowlisted_values_and_paths_never_reach_the_export",
+        "tests.test_builder.Footprint.test_skipped_dirs_and_unlisted_files",
+        "tests.test_core_regressions.ObjectiveIsolation.test_private_tree_refused_before_owner_projection",
+    ],
+    "b3-clock-boundary": [
+        "tests.test_merge_export.Freshness.test_age_and_max",
+    ],
+    "b3-clock-skew": [
+        "tests.test_merge_export.Freshness.test_clock_skew",
+    ],
+    "b3-unchanged-refresh": [
+        "tests.test_builder.HappyPath.test_deterministic_and_store_untouched",
+        "tests.test_merge_export.Merge.test_unchanged_trail_keeps_generation_time",
+        "tests.test_publication.Publication.test_first_and_unchanged_refresh",
+    ],
+}
+BATCH3_UNCOVERED = {}
+
 
 def load_cases(path):
     return json.loads(path.read_text(encoding="utf-8"))
@@ -177,8 +242,8 @@ def resolve(reference):
 
 
 class CaseCoverage(unittest.TestCase):
-    def assert_cases_executed(self, document, mapping, uncovered, label):
-        self.assertEqual(document.get("schema"), SCHEMA, label)
+    def assert_cases_executed(self, document, mapping, uncovered, label, schema=SCHEMA):
+        self.assertEqual(document.get("schema"), schema, label)
         ids = [case["id"] for case in document["cases"]]
         self.assertEqual(len(ids), len(set(ids)), f"{label}: duplicate case ids")
         fixture_ids, mapped, skipped = set(ids), set(mapping), set(uncovered)
@@ -210,6 +275,10 @@ class CaseCoverage(unittest.TestCase):
     def test_report_helper_cases_name_their_executing_tests(self):
         self.assert_cases_executed(load_cases(REPORT_HELPER_FIXTURE), REPORT_HELPER,
                                    REPORT_HELPER_UNCOVERED, "report-helper")
+
+    def test_batch3_cases_name_their_executing_tests(self):
+        self.assert_cases_executed(load_cases(BATCH3_FIXTURE), BATCH3, BATCH3_UNCOVERED, "batch3",
+                                   schema=BATCH3_SCHEMA)
 
     def test_gaps_and_missing_references_fail_by_case_id(self):
         document = {"schema": SCHEMA,
