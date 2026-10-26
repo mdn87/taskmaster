@@ -94,6 +94,16 @@ def _count_or_none(value) -> int | None:
     return value if type(value) is int and 0 <= value <= 1_000_000 else None
 
 
+def _run_record(records, name):
+    """A present run record must be one strict JSON object; an absent one is None."""
+    if name not in records:
+        return None
+    record = parse_record(records[name][1])
+    if record is None:
+        raise _Failure("required_input_invalid", "autowork", "invalid")
+    return record
+
+
 @dataclass
 class _Failure(Exception):
     code: str
@@ -291,7 +301,7 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
         evidence = [annotation_ev] + [_evidence("autowork", alias, *_record_identity(run_id, name), "", raw[0])
                                       for name, raw in records.items()
                                       if name in EVIDENCE_RECORDS or name.startswith("owner-attempts/")]
-        result = parse_record(records["result.json"][1]) if "result.json" in records else None
+        result = _run_record(records, "result.json")
         if result and result.get('command_kind') == 'cross-review':
             _verify_review_manifest(records, result, run_id)
             has_review = True
@@ -307,7 +317,7 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
             if not isinstance(recorded_objective, str):
                 trail.gap("objective_binding_unrecorded", run_ref)
 
-        state = parse_record(records["state.json"][1]) if "state.json" in records else None
+        state = _run_record(records, "state.json")
         commit = _id_or_none(state.get("source_commit")) if state is not None else None
         if audit is not None and commit is not None:
             # The owner recorded the commit alone; the configured audit store names the repository.
@@ -325,7 +335,7 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
             if audit is not None:
                 trail.gap("audit_subject_incomplete", run_ref)
 
-        assignment = parse_record(records["agent-assignment.json"][1]) if "agent-assignment.json" in records else None
+        assignment = _run_record(records, "agent-assignment.json")
         assignment_id = assignment.get("assignment_id") if assignment else None
         try:
             assignment_id = validate_id(assignment_id, "assignment_id") if assignment_id is not None else None
