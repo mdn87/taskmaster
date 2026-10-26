@@ -4,7 +4,10 @@ import json
 
 from tests.helpers import Workspace, write_json
 from tests.test_handoffs import NOTE
-from taskmaster import handoff_hook, publication
+from taskmaster import handoff_hook, publication, timefmt
+
+# The hook evaluates notes against the wall clock, so the note is dated now.
+FRESH_NOTE = NOTE.replace('last_updated: 2026-10-17T11:00:00Z', f'last_updated: {timefmt.now()}', 1)
 
 
 class HandoffHookTests(Workspace):
@@ -13,7 +16,7 @@ class HandoffHookTests(Workspace):
         self.root = self.tmp/'project'
         self.note = self.root/'.claude'/'handoff.md'
         self.note.parent.mkdir(parents=True)
-        self.note.write_text(NOTE, encoding='utf-8')
+        self.note.write_text(FRESH_NOTE, encoding='utf-8')
         self.annotate([])
         cfg = self.config()
         settings = {'schema_version': 1, 'source': str(self.store), 'state_dir': str(self.tmp/'state'),
@@ -50,7 +53,7 @@ class HandoffHookTests(Workspace):
         self.assertIn('Handoff saved', result['hookSpecificOutput']['additionalContext'])
 
     def test_invalid_note_is_fed_back_and_not_claimed_saved(self):
-        self.note.write_text(NOTE.replace('## What Was Done', '## What Was Done (PRs #10-#23)'), encoding='utf-8')
+        self.note.write_text(FRESH_NOTE.replace('## What Was Done', '## What Was Done (PRs #10-#23)'), encoding='utf-8')
         result = self.run_hook({'tool_name': 'Edit', 'tool_input': {'file_path': str(self.note)}})
         self.assertEqual(result['decision'], 'block')
         self.assertIn('## What Was Done', result['reason'])
@@ -59,7 +62,7 @@ class HandoffHookTests(Workspace):
     def test_unwatched_note_starts_a_workspace_trail_and_is_recorded(self):
         other = self.tmp/'elsewhere'/'.claude'/'handoff.md'
         other.parent.mkdir(parents=True)
-        other.write_text(NOTE, encoding='utf-8')
+        other.write_text(FRESH_NOTE, encoding='utf-8')
         result = self.run_hook({'tool_name': 'Write', 'tool_input': {'file_path': str(other)}})
         message = result['hookSpecificOutput']['additionalContext']
         self.assertIn('Started Taskmaster trail elsewhere/workspace for this workspace.', message)

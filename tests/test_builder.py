@@ -159,13 +159,22 @@ class Failures(Workspace):
     def test_owner_failures(self):
         make_run(self.store, "r1")
         self.annotate(["r1"])
-        for mode, code in (("fail", "required_source_failed"), ("schema2", "required_schema_unsupported"),
+        for mode, code in (("fail", "required_source_failed"), ("schema3", "required_schema_unsupported"),
                            ("garbage", "required_input_invalid")):
             with self.subTest(mode=mode):
                 self.set_behavior(mode=mode)
                 self.assertEqual(self.failed_codes(self.config()), [code])
         self.set_behavior()
         self.assertEqual(self.failed_codes(self.config(version="9.9.9")), ["owner_version_mismatch"])
+
+    def test_owner_schema_2_is_accepted(self):
+        make_run(self.store, "r1")
+        self.annotate(["r1"])
+        self.set_behavior(mode="schema2")
+        entry, content = only(build(self.config()))
+        self.assertNotEqual(entry["observation"]["attempt_status"], "failed")
+        autowork = [s for s in content["sources"] if s["owner"] == "autowork"][0]
+        self.assertEqual(autowork["owner_schema_version"], 2)
 
     def test_ambiguous_run(self):
         make_run(self.store, "r1")

@@ -23,8 +23,9 @@ OWNER = Path(os.environ.get("TASKMASTER_AUTOWORK") or (
 CORPUS = Path(os.environ.get("TASKMASTER_CORPUS") or SIBLING / "tests" / "fixtures" / "dispatch-outcome")
 MANIFEST = FIXTURES / "corpus" / "retry-chain" / "manifest.json"
 
-# Frozen digest of the retry-chain trail under the config written below.
-EXPECTED_TRAIL = "e38a08aa1c0477c23c5e88f7ecdd40959c095493b5380f176b17394cbc460c25"
+# Frozen digest of the retry-chain trail under the config written below, read with
+# Autowork outcome schema 2 (it was e38a08aa... under schema 1; nothing else differs).
+EXPECTED_TRAIL = "97012a2c14964dc20659fe8ab259e6bc866d60da4b3f237ed8250530b0ce9b19"
 
 RUN_IDS = ["20261010-031756-32e020cb6504", "20261010-032042-f327d19ae853", "20261010-054207-d2bfe3a2f237",
            "20261010-055627-1973939c5267", "20261010-055823-20ca47f586d4", "20261010-061255-7c0ee08e5229",
@@ -91,7 +92,7 @@ class RecordedCorpus(unittest.TestCase):
 
         autowork = [s for s in content["sources"] if s["owner"] == "autowork"][0]
         self.assertEqual(len(autowork["inputs"]), 50)
-        self.assertEqual((autowork["owner_version"], autowork["owner_schema_version"]), ("0.1.0", 1))
+        self.assertEqual((autowork["owner_version"], autowork["owner_schema_version"]), ("0.1.0", 2))
 
 
 if __name__ == "__main__":
