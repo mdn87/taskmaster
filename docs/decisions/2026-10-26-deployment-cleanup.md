@@ -75,3 +75,39 @@ Owner-side audit citations, `revision_matched`, and faster polling remain option
 backlog ideas. A `busy` refresh response still means another writer holds the
 publication lock; it is not a failed objective. No additional production feature,
 credential change or storage-schema change was introduced.
+
+## Branch and worktree reconciliation, 2026-10-26
+
+The operator invoked `landed-means-done` after deployment. A fresh fetch and
+reconciliation sweep confirmed the Taskmaster cleanup and both Dias fixes are
+on their respective `origin/main` branches. Neither repository has an unmerged
+local branch or an unpushed branch commit after cleanup.
+
+Removed 20 obsolete Dias local branches: 15 were ancestors of `origin/main`;
+the five remaining tips belonged to merged PRs whose histories were squashed or
+superseded. Their original commits were tagged and the remote hashes verified
+before removal: `archive/docs/mobile-approval-evidence-update` and
+`archive/feat/mobile-0` through `archive/feat/mobile-3`. The remaining remote
+`feat/mobile-2` branch was removed after the same archive check.
+
+Retired the clean `mobile-approval-sandbox` and detached `phase-1-native`
+worktrees. The detached tip is preserved by
+`archive/phase-1-native-detached-20261026`. Full archives retain source and ignored
+acceptance artifacts, excluding regenerable `node_modules` and Git metadata.
+All 1,894 sandbox files and 5,151 native-worktree files were checked against the
+archive bytes before removal. Archives, hash manifests and filesystem remnants
+left by Windows Git are retained under `.local/cleanup-20261026/reconciliation/`.
+
+Two explicit holds remain in Dias:
+
+- `deploy/mobile-20261025`, worktree `../dias-mobile`: its commits are landed,
+  but installed Codex and Claude hooks still reference this source path. Retain
+  it until those references are migrated and their replacement is verified.
+- `main`, worktree `../dias`: its commits are landed, but unrelated edits to
+  hooks and the prototype, plus untracked review documents, predate this task.
+  Preserve these edits until their owning work is integrated or archived; they
+  are not part of this session's completed patch. Production uses the published
+  releases described above, not this checkout's old HEAD.
+
+Taskmaster retains only its main worktree. Its pre-existing `.lugos-wip/`
+session records were preserved. No anonymous stash was created.
