@@ -1,6 +1,7 @@
 # Taskmaster as the work-facing view
 
-Concept, 2026-10-19. Not implemented. This coalesces a proposal to absorb the
+Concept, 2026-10-19. Slice 1 (the Cirra adapter) is built and on main
+(section 10); slices 2 and 3 are not implemented. This coalesces a proposal to absorb the
 product ideas of Storybloq (storybloq.com/cli) into Lugos by widening
 Taskmaster, and checks it against the components as they exist on disk today.
 It adds one read adapter and two derived views to Taskmaster. It moves no
