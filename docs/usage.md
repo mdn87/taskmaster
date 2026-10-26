@@ -45,6 +45,42 @@ substitute the copy time or filesystem modification time. See
 [read footprint](read-footprint.md) for permitted records and unsafe stores.
 Do not point a live adapter at an unbounded private run tree.
 
+## Cirra production audits
+
+An objective may name one `cirra` store so that the runs' recorded commits are
+joined to the production audits Cirra ran on them (work-view concept, slice 1):
+
+```toml
+[[stores]]
+alias = "audits"
+owner = "cirra"
+mode = "live"
+url = "http://127.0.0.1:8797"
+repository = "lugos"
+
+[[objectives]]
+namespace = "pilot"
+id = "first-trail"
+annotation = "objective.json"
+run_store = "pilot-runs"
+audit_store = "audits"
+```
+
+`url` must be `http://127.0.0.1` with an optional port: Cirra's audit route is
+loopback only, and any other address (including `localhost`) is a configuration
+error, not a gap. `repository` is the store id under which a run's `source_commit`
+becomes a `git` revision reference; Taskmaster does not open the repository. A
+`saved_snapshot` store names `path` (recorded route responses) and `manifest`
+instead of `url`; it exists for fixtures. The store is optional: an unreachable
+route leaves the entry `partial` with `optional_source_unavailable` on that source.
+
+A revision join reaches `candidate` status. To resolve it, the annotation may list
+`audit_attempts` (Cirra attempt ids) or `finding_items` (derived item ids, the
+SHA-256 of the canonical `[repository_key, finding_key]` pair), and a run's
+assignment may cite `finding_items`. Cirra's gate verdict, conclusion and waiver
+reason are copied as recorded; Taskmaster never recomputes a gate, and the counts
+it derives are observations, never completion percentages.
+
 ## Agents and manual publication
 
 ```text

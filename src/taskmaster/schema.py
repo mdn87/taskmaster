@@ -16,6 +16,7 @@ from .identity import (
     validate_id,
     validate_label,
     validate_pointer,
+    validate_text,
     validate_token,
 )
 
@@ -41,9 +42,11 @@ MAX_ENVELOPE_OVERHEAD = 16 * 1024
 MAX_ENTRY_CODES = 32
 MAX_SOURCE_CODES = 8
 
-OWNERS = ("autowork", "dias", "git", "lugos-audit", "operator", "policy", "taskmaster")
-KINDS = ("assignment", "audit_receipt", "chip", "objective", "policy", "revision", "run")
-RELATIONS = ("annotates_chip", "has_assignment", "has_audit_candidate", "has_revision", "has_run", "uses_policy")
+OWNERS = ("autowork", "cirra", "dias", "git", "lugos-audit", "operator", "policy", "taskmaster")
+KINDS = ("assignment", "audit_gate", "audit_receipt", "chip", "finding_observation", "objective", "policy",
+         "production_audit", "revision", "run")
+RELATIONS = ("annotates_chip", "has_assignment", "has_audit_candidate", "has_audit_gate", "has_production_audit",
+             "has_revision", "has_run", "observes_finding", "uses_policy")
 LINK_STATUSES = ("candidate", "conflict", "missing", "resolved", "unavailable", "unsupported")
 PROVENANCE = ("operator_annotated", "owner_recorded")
 SOURCE_MODES = ("live", "saved_snapshot")
@@ -99,6 +102,8 @@ _TOKEN = "token"
 _TOKEN_OR_NULL = "token?"
 _BOOL_OR_NULL = "bool?"
 _HEX_OR_NULL = "hex?"
+_INT_OR_NULL = "int?"
+_TEXT_OR_NULL = "text?"
 RELATION_RULES: dict[str, tuple[str, str, dict[str, str]]] = {
     "has_run": ("objective", "run", {
         "dispatch_status": _TOKEN,
@@ -120,6 +125,27 @@ RELATION_RULES: dict[str, tuple[str, str, dict[str, str]]] = {
     }),
     "has_revision": ("run", "revision", {}),
     "has_audit_candidate": ("run", "audit_receipt", {}),
+    # Cirra production audits (work-view concept, section 5): every value is copied from Cirra's records.
+    "has_production_audit": ("revision", "production_audit", {
+        "tier": _TOKEN_OR_NULL,
+        "state": _TOKEN_OR_NULL,
+        "audit_id": _HEX_OR_NULL,
+        "baseline_attempt": _TOKEN_OR_NULL,
+    }),
+    "observes_finding": ("production_audit", "finding_observation", {
+        "item": _HEX_OR_NULL,
+        "finding_key": _TEXT_OR_NULL,
+        "severity": _TOKEN_OR_NULL,
+        "comparison": _TOKEN_OR_NULL,
+    }),
+    "has_audit_gate": ("production_audit", "audit_gate", {
+        "record": _TOKEN,
+        "gate": _TOKEN_OR_NULL,
+        "level": _TOKEN_OR_NULL,
+        "conclusion": _TOKEN_OR_NULL,
+        "blocking": _INT_OR_NULL,
+        "waiver_reason": _TEXT_OR_NULL,
+    }),
     "annotates_chip": ("objective", "chip", {}),
 }
 
@@ -268,6 +294,13 @@ def _validate_asserted(asserted: Any, allowed: dict[str, str], what: str) -> Non
                 _fail(f"{what}.{name}: not a boolean")
         elif rule.startswith("hex"):
             _hex(value, f"{what}.{name}")
+        elif rule.startswith("int"):
+            _int(value, f"{what}.{name}", 0, 1_000_000)
+        elif rule.startswith("text"):
+            try:
+                validate_text(value, f"{what}.{name}")
+            except IdentityError as exc:
+                _fail(str(exc))
 
 
 # --- trail content -------------------------------------------------------------

@@ -75,6 +75,8 @@ def ensure(config_path, root):
         raise WorkspaceError('Taskmaster has no watcher configured')
     settings_path = Path(cfg.watch).absolute()
     settings = watch.load_settings(settings_path, cfg)
+    if settings.get('remote_owner'):
+        raise WorkspaceError('workspace registration is remote-owned; use /taskmaster workspace add')
     state = Path(settings['state_dir'])
     state.mkdir(parents=True, exist_ok=True)
     with publication.writer_lock(state / 'workspaces'):

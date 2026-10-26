@@ -106,10 +106,14 @@ def read_projection(path, now):
         return empty(now)
 
 
-def note_timestamp(value):
+def note_timestamp(value, source_timezone=None):
     if re.fullmatch(r'\d{4}-\d{2}-\d{2} \d{2}:\d{2}', value):
         # Existing session notes use host-local wall time, not a fabricated UTC time.
-        moment = datetime.strptime(value, '%Y-%m-%d %H:%M').astimezone(timezone.utc)
+        moment = datetime.strptime(value, '%Y-%m-%d %H:%M')
+        if source_timezone:
+            from zoneinfo import ZoneInfo
+            moment = moment.replace(tzinfo=ZoneInfo(source_timezone))
+        moment = moment.astimezone(timezone.utc)
     else:
         moment = datetime.fromisoformat(value.replace('Z', '+00:00'))
         if moment.tzinfo is None:
@@ -117,7 +121,7 @@ def note_timestamp(value):
     return timefmt.fmt(moment)
 
 
-def inspect_note(path, now):
+def read_note_bytes(path):
     from . import watch
     file = Path(path)
     for parent in (file.parent.parent, file.parent):
@@ -129,6 +133,16 @@ def inspect_note(path, now):
     after = file.stat()
     if len(raw) > MAX_NOTE or (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
         raise ValueError('handoff note oversized or changed during read')
+    return raw
+
+
+def inspect_note(path, now):
+    return inspect_bytes(read_note_bytes(path), now)
+
+
+def inspect_bytes(raw, now, source_timezone=None):
+    if len(raw) > MAX_NOTE:
+        raise ValueError('handoff note oversized')
     text = raw.decode('utf-8-sig')
     headers = {}
     section_lines = {}
@@ -149,12 +163,26 @@ def inspect_note(path, now):
                     headers[key] = line.split(':', 1)[1].strip()
     if not headers.get('session_summary') or any(not '\n'.join(section_lines.get(key, [])).strip() for key in SECTIONS):
         raise ValueError('required handoff fields missing')
-    updated = note_timestamp(headers.get('last_updated', ''))
+    updated = note_timestamp(headers.get('last_updated', ''), source_timezone)
     age = timefmt.seconds_between(updated, now)
     if age < 0:
         raise ValueError('future handoff note')
     return {'note_sha256': hashlib.sha256(raw).hexdigest(), 'note_updated_at': updated,
             'status': 'saved' if age <= NOTE_AGE else 'stale'}
+
+
+def append_event(ledger, binding, note, now):
+    binding_hash = sha256_hex(canonical(binding))
+    event = next((e for e in reversed(ledger['events']) if
+                  (e['objective'], e['provider'], e['binding_sha256']) ==
+                  (binding['objective'], binding['provider'], binding_hash)), None)
+    if event is None or event['note_sha256'] != note['note_sha256']:
+        event = {'previous_event_id': ledger['events'][-1]['event_id'] if ledger['events'] else None,
+                 'objective': binding['objective'], 'provider': binding['provider'], 'binding_sha256': binding_hash,
+                 'note_sha256': note['note_sha256'], 'note_updated_at': note['note_updated_at'], 'recorded_at': now}
+        event['event_id'] = sha256_hex(canonical(event))
+        ledger['events'].append(event)
+    return event
 
 
 def load_ledger(path):
@@ -195,13 +223,24 @@ def publish(settings, now, cycle_seconds=0.0):
     result = empty(now, 'current' if settings.get('handoffs') else 'unconfigured', max_age)
     try:
         with publication.writer_lock(state/'handoffs'):
+            snapshot = None
+            if settings.get('context_file'):
+                from . import remote_context
+                snapshot = remote_context.read(settings, now)
             ledger = load_ledger(state/'handoff-ledger.json')
-            latest = {(e['objective'], e['provider'], e['binding_sha256']): e for e in ledger['events']}
             projected = {}
             for binding in settings.get('handoffs', []):
                 source = {'provider': binding['provider'], 'status': 'missing', 'note_sha256': None, 'note_updated_at': None, 'event_id': None}
                 try:
-                    note = inspect_note(binding['path'], now)
+                    if snapshot is None:
+                        note = inspect_note(binding['path'], now)
+                    else:
+                        import base64
+                        row = snapshot['notes'].get(binding['path'], {'status':'unavailable','data':None})
+                        if row['status'] == 'present':
+                            note = inspect_bytes(base64.b64decode(row['data'], validate=True), now, snapshot['timezone'])
+                        else:
+                            source['status'], note = row['status'], None
                 except FileNotFoundError:
                     note = None
                 except OSError:
@@ -209,14 +248,7 @@ def publish(settings, now, cycle_seconds=0.0):
                 except (ValueError, OverflowError):
                     source['status'], note = 'invalid', None
                 if note is not None:
-                    binding_hash = sha256_hex(canonical(binding))
-                    event = latest.get((binding['objective'], binding['provider'], binding_hash))
-                    if event is None or event['note_sha256'] != note['note_sha256']:
-                        event = {'previous_event_id': ledger['events'][-1]['event_id'] if ledger['events'] else None,
-                                 'objective': binding['objective'], 'provider': binding['provider'], 'binding_sha256': binding_hash,
-                                 'note_sha256': note['note_sha256'], 'note_updated_at': note['note_updated_at'], 'recorded_at': now}
-                        event['event_id'] = sha256_hex(canonical(event))
-                        ledger['events'].append(event)
+                    event = append_event(ledger, binding, note, now)
                     source.update(note, event_id=event['event_id'])
                 projected.setdefault(binding['objective'], []).append(source)
             if len(ledger['events']) > MAX_EVENTS or len((json.dumps(ledger, indent=2)+'\n').encode()) > MAX_LEDGER:

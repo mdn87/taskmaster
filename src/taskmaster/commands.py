@@ -36,6 +36,10 @@ def execute(config_path, text):
     cfg = config.load(config_path)
     if cfg.watch is None:
         raise watch.WatchError('watch is not configured')
+    from .remote_owner import client_settings, forward_command
+    client = client_settings(cfg.watch)
+    if client is not None:
+        return forward_command(client, text)
     settings = watch.load_settings(cfg.watch, cfg)
     state = Path(settings['state_dir'])
     command = tokens.pop(0)

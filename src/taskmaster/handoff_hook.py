@@ -64,6 +64,16 @@ def record(note, cfg):
                        'the heading name. Fix the note and save it again.')
     if cfg.watch is None:
         return True, f'{note} is a valid handoff note; Taskmaster has no watcher configured, so nothing was recorded.'
+    from .remote_owner import client_settings
+    client = client_settings(cfg.watch)
+    if client is not None:
+        from .remote_owner import forward
+        import base64
+        raw = handoffs.read_note_bytes(note)
+        provider = next(p for p, folder in handoffs.FOLDERS.items() if folder.lower() == note.parent.name.lower())
+        result = forward(client, {'action':'handoff', 'workspace':str(note.absolute().parent.parent),
+                                    'provider':provider, 'data':base64.b64encode(raw).decode('ascii')})
+        return True, f"Host owner accepted handoff for {result['objective']}: {result.get('handoff_status', 'queued')}."
     settings = watch.load_settings(cfg.watch, cfg)
     key = watch.normalized(str(note.absolute()))
     trails = [b['objective'] for b in settings.get('handoffs', []) if watch.normalized(b['path']) == key]
