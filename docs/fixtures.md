@@ -34,6 +34,14 @@ The local three-consumer check also called Dias's live HTTP route, passed its ev
 
 Regenerate the agreement outputs after an intended model change with `TASKMASTER_REGENERATE=1`, then review the diff.
 
+## Batch 3: release demonstration
+
+`fixtures/batch3/cases.json` lists 16 edge cases: reworded retries, duplicate run ids across and within stores, malformed, duplicate-key and oversized run records, run-id case and Unicode identity, Unicode labels, required and optional source changes, first-attempt failures, privacy filtering, the age boundary, clock skew, and unchanged refresh. `test_case_coverage.py` maps each case to the methods that execute it, in the same way as Batch 2. Cases that Batch 1 and 2 tests already executed are mapped to those tests. The new cases are in `test_batch3_edges.py`.
+
+Writing these cases found one defect. A present `result.json`, `state.json` or `agent-assignment.json` that was not one strict JSON object was read as absent, so a duplicated `objective_id` could hide a membership conflict. Such a record now fails the objective with `required_input_invalid`, under the plan's rule for required records.
+
+The UI evidence was captured on 2026-10-26 against the live export pulled from the owner host (snapshot `c55288299a13e20258a745953e9ed96133058f20f4dfc523af09943c8fdb9ae1`, 57 objectives). Dias's `GET /api/v1/trails` model and `taskmaster show --all --json --now` at Dias's `evaluated_at` were compared field by field, with zero differences. A headless browser capture of `?view=trails` and a window capture of the running WebView2 shell on its Trails tab both show the same snapshot and objective count. The captures, both models and the export stay local in `.local/evidence/batch3-2026-10-26/`, which is ignored by git, because they name private workspaces.
+
 ## Limits of the evidence
 
 - The builder can't currently produce `optional_source_invalid`, because policy bytes are hashed, not parsed. The agreement fixture builds that state directly through the merge function.
