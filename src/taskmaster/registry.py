@@ -62,7 +62,7 @@ def validate(value):
     return value
 
 
-def reconcile(previous, bindings, feed, overrides, now, status, max_age, *, ended=(), ended_bindings=()):
+def reconcile(previous, bindings, feed, overrides, now, status, max_age, *, ended=(), ended_bindings=(), live_observed_at=None):
     if previous is not None:
         validate(previous)
         if now < previous['evaluated_at']:
@@ -75,7 +75,7 @@ def reconcile(previous, bindings, feed, overrides, now, status, max_age, *, ende
     observations = {}
     for run_id in live.keys() | exits.keys():
         event = context[run_id] if run_id in live else exits[run_id]
-        seen_at = now if run_id in live else event['observedAt']
+        seen_at = (live_observed_at or now) if run_id in live else event['observedAt']
         if not timefmt.is_valid(seen_at) or seen_at > now:
             raise ValueError('invalid session exit time; existing history retained')
         identity = resume_identity(run_id, event.get('resume'))

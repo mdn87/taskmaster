@@ -71,15 +71,16 @@ class Workspace(unittest.TestCase):
     def set_behavior(self, **values):
         write_json(self.behavior, {"mode": "normal", **values})
 
-    def annotate(self, run_ids, objective_id="obj-1", name="annotation.json") -> Path:
-        return write_json(self.tmp / name, {"objective_id": objective_id, "run_ids": run_ids})
+    def annotate(self, run_ids, objective_id="obj-1", name="annotation.json", **extra) -> Path:
+        return write_json(self.tmp / name, {"objective_id": objective_id, "run_ids": run_ids, **extra})
 
     def owner_calls(self) -> list[str]:
         calls = self.behavior.with_suffix(".calls")
         return calls.read_text(encoding="ascii").splitlines() if calls.exists() else []
 
     def config(self, *, annotation="annotation.json", policy=None, chips=(), mode="live", manifest=None,
-               version="0.1.0", label=None) -> Path:
+               version="0.1.0", label=None, audit=None) -> Path:
+        """`audit` adds a cirra store "audits" (its TOML keys besides alias, owner and repository) to the objective."""
         command = json.dumps([sys.executable, str(FAKE_OWNER), str(self.behavior)])
         lines = [
             "schema_version = 1",
@@ -95,6 +96,9 @@ class Workspace(unittest.TestCase):
         ]
         if manifest:
             lines.append(f'manifest = "{manifest}"')
+        if audit is not None:
+            lines += ["[[stores]]", 'alias = "audits"', 'owner = "cirra"']
+            lines += [f"{key} = {json.dumps(str(value))}" for key, value in {"repository": "repo", **audit}.items()]
         if policy is not None:
             lines += ["[[policies]]", 'alias = "scope"', f'path = "{policy}"']
         lines += ["[[objectives]]", 'namespace = "ops"', 'id = "obj-1"', f'annotation = "{annotation}"',
@@ -103,6 +107,8 @@ class Workspace(unittest.TestCase):
             lines.append('policy = "scope"')
         if label is not None:
             lines.append(f'label = "{label}"')
+        if audit is not None:
+            lines.append('audit_store = "audits"')
         for project, chip in chips:
             lines += ["[[chips]]", f'project_id = "{project}"', f'chip_id = "{chip}"', 'namespace = "ops"',
                       'objective = "obj-1"']

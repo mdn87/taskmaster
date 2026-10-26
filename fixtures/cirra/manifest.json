@@ -1,0 +1,12 @@
+{
+  "captured_at": "2026-10-20T01:59:38Z",
+  "files": {
+    "audits-by-head/4d683db7924120cba5a69e545778fbc361df387c.json": "c39378cb159f58068115de95aa41a2af96fac8f5a1fbce6b266e94f96e663a6f",
+    "audits-by-head/82ad873d0edf72cfdba6fc2d67bd446a417b794c.json": "035d6169009ec4bdd8716e7d66e8a0655e207e102e753cb924968063e1b8add2",
+    "audits/217f6b2898ed4dcaae005aa16fc31d95.json": "a893e66b38b7b5f6b4699810e8c9fcad6ab3e051f62bd1bda0a7866655d8d596",
+    "audits/8c85d34160b3447b999aeab9d977c271.json": "7c242706c9c6df3e1598e1ea554d46b55c62cdd6421cd651219175941203fd45",
+    "gates/134c4143182af801bd2e0bc157c78180b5aab9cdf1a90059cb8b8a72a8125ca4.json": "282a2d3001d4fdfa29700cf620b17d5675864fa8947b2b7b2ea9d5a1552c330f",
+    "healthz.json": "b029a483c5c3ddd4202ac2ae402bf09ad1d1a15964757a25f816693ca342ff67"
+  },
+  "schema": "taskmaster.corpus-manifest/v1"
+}

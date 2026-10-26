@@ -75,7 +75,7 @@ def normalized(value):
 def load_settings(path, cfg):
     path = Path(path).absolute()
     raw = read_json(path)
-    allowed = {'schema_version', 'source', 'state_dir', 'export', 'interval_seconds', 'rules', 'dias_url', 'handoffs'}
+    allowed = {'schema_version', 'source', 'state_dir', 'export', 'interval_seconds', 'rules', 'dias_url', 'handoffs', 'context_file', 'remote_owner'}
     if set(raw) - allowed or type(raw.get('schema_version')) is not int or raw['schema_version'] != 1:
         raise WatchError('unsupported watch configuration')
     for key in ('source', 'state_dir', 'export'):
@@ -88,6 +88,13 @@ def load_settings(path, cfg):
     raw['interval_seconds'] = interval
     if 'dias_url' in raw and not re.fullmatch(r'http://127\.0\.0\.1:[0-9]{1,5}', raw['dias_url']):
         raise WatchError('Dias must use an explicit IPv4 loopback URL')
+    if 'context_file' in raw:
+        if not isinstance(raw['context_file'], str) or not raw['context_file'] or 'dias_url' in raw:
+            raise WatchError('context_file must be explicit and replaces dias_url')
+        raw['context_file'] = str((path.parent / raw['context_file']).absolute())
+    if 'remote_owner' in raw:
+        from .remote_owner import transport
+        transport(raw)
     objectives = {(o.namespace, o.id) for o in cfg.objectives}
     rules = raw.get('rules')
     if not isinstance(rules, list) or not 1 <= len(rules) <= 64:
@@ -298,13 +305,22 @@ def project_sessions(settings, now):
     state = Path(settings['state_dir'])
     registry = read_json(state / 'registrations.json', {'overrides': {}, 'history': []})
     rows, status, feed_sessions, ended, ended_bindings = [], 'unconfigured', [], [], []
-    if settings.get('dias_url'):
+    observed_at = now
+    if settings.get('dias_url') or settings.get('context_file'):
         try:
-            with urllib.request.urlopen(settings['dias_url'] + '/api/v1/trails/context', timeout=3) as response:
-                raw = response.read(5 * 1024 * 1024 + 1)
-            if len(raw) > 5 * 1024 * 1024:
-                raise WatchError('session feed over bounds')
-            feed = owner_json(raw)
+            if settings.get('context_file'):
+                from . import remote_context
+                snapshot = remote_context.read(settings, now)
+                if snapshot['dias_status'] != 'current':
+                    raise ValueError('remote Dias unavailable')
+                feed = snapshot['context']
+                observed_at = snapshot['observed_at']
+            else:
+                with urllib.request.urlopen(settings['dias_url'] + '/api/v1/trails/context', timeout=3) as response:
+                    raw = response.read(5 * 1024 * 1024 + 1)
+                if len(raw) > 5 * 1024 * 1024:
+                    raise WatchError('session feed over bounds')
+                feed = owner_json(raw)
             if feed.get('schemaVersion') != 1 or not isinstance(feed.get('sessions'), list):
                 raise WatchError('invalid session feed')
             feed_sessions = feed['sessions']
@@ -337,7 +353,7 @@ def project_sessions(settings, now):
     try:
         previous = read_session_registry(history_path)
         history = session_registry.reconcile(previous, rows, feed_sessions, registry['overrides'], now, status, payload['max_age_seconds'],
-                                             ended=ended, ended_bindings=ended_bindings)
+                                             ended=ended, ended_bindings=ended_bindings, live_observed_at=observed_at)
     except (ValueError, TypeError, KeyError) as exc:
         raise WatchError('session registry update failed; previous history retained') from exc
     atomic_json(history_path, history)
@@ -361,6 +377,8 @@ def read_session_registry(path):
 def tick(config_path, settings_path, *, now=None, owner_cache=None, recover_invalid_export=False):
     cfg = config.load(config_path)
     settings = load_settings(settings_path, cfg)
+    if settings.get('remote_owner'):
+        raise WatchError('watcher is remote-owned; use /taskmaster refresh')
     state = Path(settings['state_dir'])
     state.mkdir(parents=True, exist_ok=True)
     with publication.writer_lock(state / 'cycle'):
@@ -436,7 +454,7 @@ def _tick(cfg, settings, now, owner_cache=None, recover_invalid_export=False):
     with publication.writer_lock(state / 'registrations'):
         sessions = project_sessions(settings, timefmt.now())
     from . import handoffs
-    handoff_status = handoffs.publish(settings, now, time.monotonic() - started)
+    handoff_status = handoffs.publish(settings, timefmt.now() if settings.get('context_file') else now, time.monotonic() - started)
     failed = sum(e['observation']['attempt_status'] == 'failed' for e in doc['entries'])
     status = {'schema_version': 1, 'checked_at': now, 'pid': os.getpid(), 'state': 'source_failed' if error else ('degraded' if failed else 'running'),
               'interval_seconds': settings['interval_seconds'], 'generation': str(generation), 'fingerprint': fingerprint,

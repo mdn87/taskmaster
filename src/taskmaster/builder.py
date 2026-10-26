@@ -9,10 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 
-from . import autowork, schema
+from . import autowork, cirra, schema
 from .canonical import canonical, sha256_hex
 from .config import MAX_OBJECTIVES, Config, Objective
-from .identity import IdentityError, is_sha256_hex, validate_id, validate_token
+from .identity import MAX_TEXT_BYTES, IdentityError, is_sha256_hex, validate_id, validate_text, validate_token
 from .merge import AttemptResult, SourceResult, merge_entry
 from .sources import SourceError, footprint, load_manifest, parse_record, read_small
 from .strictjson import StrictJSONError, loads
@@ -73,6 +73,27 @@ def _hex_or_none(value) -> str | None:
     return value if is_sha256_hex(value) else None
 
 
+def _id_or_none(value) -> str | None:
+    try:
+        return validate_id(value, "value")
+    except IdentityError:
+        return None
+
+
+def _text_or_none(value) -> str | None:
+    """Owner prose copied verbatim within the text bound; None when it is not printable text."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return validate_text(value.encode("utf-8")[:MAX_TEXT_BYTES].decode("utf-8", "ignore"), "value")
+    except IdentityError:
+        return None
+
+
+def _count_or_none(value) -> int | None:
+    return value if type(value) is int and 0 <= value <= 1_000_000 else None
+
+
 @dataclass
 class _Failure(Exception):
     code: str
@@ -119,7 +140,7 @@ def _record_identity(run_id: str, name: str) -> tuple[str, str]:
     return _stem(name), run_id
 
 
-def _read_annotation(objective: Objective) -> tuple[bytes, list[str]]:
+def _read_annotation(objective: Objective) -> tuple[bytes, list[str], dict[str, list[str]]]:
     try:
         raw = read_small(objective.annotation)
     except SourceError as exc:
@@ -130,19 +151,42 @@ def _read_annotation(objective: Objective) -> tuple[bytes, list[str]]:
         raise _Failure("required_input_invalid", "operator", "invalid") from None
     run_ids = doc.get("run_ids") if isinstance(doc, dict) else None
     if not isinstance(doc, dict) or not isinstance(doc.get("objective_id"), str) \
-            or set(doc) - {"objective_id", "run_ids", "interventions"} \
+            or set(doc) - {"objective_id", "run_ids", "interventions", "audit_attempts", "finding_items"} \
             or not isinstance(run_ids, list):
         raise _Failure("required_input_invalid", "operator", "invalid")
+    cites = {name: _citations(doc, name) for name in ("audit_attempts", "finding_items")}
     try:
         for run_id in run_ids:
             validate_id(run_id, "run_id")
+        for attempt_id in cites["audit_attempts"]:
+            validate_id(attempt_id, "audit_attempt")
     except IdentityError:
         raise _Failure("required_input_invalid", "operator", "invalid") from None
-    if len(run_ids) != len(set(run_ids)):
+    if len(run_ids) != len(set(run_ids)) or not all(is_sha256_hex(item) for item in cites["finding_items"]):
         raise _Failure("required_input_invalid", "operator", "invalid")
     if doc["objective_id"] != objective.id:
         raise _Failure("annotation_identity_mismatch", "operator", "invalid")
-    return raw, run_ids
+    return raw, run_ids, cites
+
+
+def _citations(doc: dict, name: str) -> list[str]:
+    """Operator citations of Cirra attempts or finding items: a duplicate-free list of strings."""
+    value = doc.get(name, [])
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value) or len(value) != len(set(value)):
+        raise _Failure("required_input_invalid", "operator", "invalid")
+    return value
+
+
+def _heads(fp, located) -> list[str]:
+    """Distinct commit heads the located runs recorded, for the audit route query."""
+    heads = set()
+    for run_dir in located.values():
+        rel = fp.records_in(run_dir).get("state.json") if run_dir is not None else None
+        state = parse_record(fp.data[rel]) if rel is not None else None
+        commit = state.get("source_commit") if state is not None else None
+        if cirra.is_head(commit):
+            heads.add(commit)
+    return sorted(heads)
 
 
 def _read_policy(objective: Objective) -> bytes | None:
@@ -193,9 +237,10 @@ def _observe(config: Config, objective: Objective, run_ids: list[str], owner_cac
 
 
 def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc, version,
-             manifest_captured, policy_raw, policy_state):
+             manifest_captured, policy_raw, policy_state, audit_read=None, cites=None):
     store = objective.run_store
     alias = store.alias
+    audit = objective.audit_store
     trail = _Trail()
     obj_ref = trail.ref("operator", objective.namespace, "objective", objective.id)
     annotation_sha = sha256_hex(annotation_raw)
@@ -204,6 +249,10 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
 
     autowork_inputs: dict[tuple[str, str], dict] = {}
     has_review = False
+    revisions: dict[str, list[str]] = {}  # recorded commit -> run ids, when an audit store is configured
+    run_citations: dict[str, list[dict]] = {}  # finding item -> evidence from assignments citing it
+    repository_sha = sha256_hex(canonical([audit.alias, audit.repository, objective.namespace, objective.id])) \
+        if audit is not None else None
 
     def add_inputs(run_dir: str, run_id: str) -> dict[str, tuple[str, bytes]]:
         records = {}
@@ -259,11 +308,22 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
                 trail.gap("objective_binding_unrecorded", run_ref)
 
         state = parse_record(records["state.json"][1]) if "state.json" in records else None
-        trail.link("has_revision", run_ref, None, "missing", None, {}, [])
+        commit = _id_or_none(state.get("source_commit")) if state is not None else None
+        if audit is not None and commit is not None:
+            # The owner recorded the commit alone; the configured audit store names the repository.
+            revision_ref = trail.ref("git", audit.repository, "revision", commit)
+            trail.link("has_revision", run_ref, revision_ref, "candidate", "owner_recorded", {},
+                       [_evidence("autowork", alias, "state", run_id, "/source_commit", records["state.json"][0]),
+                        _evidence("taskmaster", "config", "repository_binding", audit.alias, "", repository_sha)])
+            revisions.setdefault(commit, []).append(run_id)
+        else:
+            trail.link("has_revision", run_ref, None, "missing", None, {}, [])
         if state is not None and isinstance(state.get("source_commit"), str):
             trail.gap("repository_identity_unrecorded", run_ref)
         else:
             trail.gap("revision_unrecorded", run_ref)
+            if audit is not None:
+                trail.gap("audit_subject_incomplete", run_ref)
 
         assignment = parse_record(records["agent-assignment.json"][1]) if "agent-assignment.json" in records else None
         assignment_id = assignment.get("assignment_id") if assignment else None
@@ -277,6 +337,11 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
             continue
         assignment_ref = trail.ref("autowork", alias, "assignment", assignment_id)
         assignment_sha = records["agent-assignment.json"][0]
+        cited = assignment.get("finding_items")
+        for index, item in enumerate(cited if isinstance(cited, list) else []):
+            if is_sha256_hex(item):
+                run_citations.setdefault(item, []).append(
+                    _evidence("autowork", alias, "agent-assignment", run_id, f"/finding_items/{index}", assignment_sha))
         trail.link("has_assignment", run_ref, assignment_ref, "resolved", "owner_recorded",
                    {name: _token_or_none(assignment.get(name)) for name in ("task_class", "route", "model", "sandbox")},
                    [_evidence("autowork", alias, "agent-assignment", run_id, "/assignment_id", assignment_sha)])
@@ -303,6 +368,9 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
             trail.link("uses_policy", assignment_ref, policy_ref, "unsupported", "owner_recorded",
                        {"recorded_sha256": recorded, "current_sha256": policy_sha}, [binding_ev])
             trail.gap("policy_historical_lookup_unsupported", policy_ref)
+
+    if audit_read is not None:
+        _audit_links(trail, objective, audit_read, revisions, cites, annotation_sha, run_citations)
 
     # Probe-linked runs the owner read count as inputs even outside the objective.
     for attempt in attempts.values():
@@ -337,6 +405,14 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
             "captured_at": None,
             "inputs": [] if policy_sha is None or policy_state != "ok" else
             [{"record_type": POLICY_RECORD, "record_id": objective.policy.alias, "raw_sha256": policy_sha}]})
+    if audit is not None:
+        sources.append({
+            "owner": "cirra", "store_id": audit.alias, "required": False, "source_mode": audit.mode,
+            "adapter_version": schema.ADAPTER_VERSION,
+            "owner_version": _token_or_none(audit_read.owner_version) if audit_read else None,
+            "owner_schema_version": cirra.SCHEMA_VERSION if audit_read else None,
+            "captured_at": audit_read.captured_at if audit_read and audit.mode == "saved_snapshot" else None,
+            "inputs": list(audit_read.inputs) if audit_read else []})
     sources.sort(key=lambda s: schema.sort_key([s["owner"], s["store_id"]]))
 
     coverage_status = {adapter: "unsupported" for adapter in schema.COVERAGE_ADAPTERS}
@@ -358,6 +434,93 @@ def _content(config, objective, annotation_raw, run_ids, fp, located, owner_doc,
     }
 
 
+def _audit_links(trail, objective, audit_read, revisions, cites, annotation_sha, run_citations):
+    """Cirra's attempts, observations and gates for each recorded revision: copied, never recomputed."""
+    audit = objective.audit_store
+    alias = audit.alias
+    cited_attempts = {attempt_id: i for i, attempt_id in enumerate(cites["audit_attempts"])}
+    cited_items = {item: i for i, item in enumerate(cites["finding_items"])}
+    for commit in sorted(revisions):
+        revision_ref = trail.ref("git", audit.repository, "revision", commit)
+        attempt_ids = audit_read.by_head.get(commit, [])
+        if not attempt_ids:
+            trail.link("has_production_audit", revision_ref, None, "missing", None, {}, [])
+            continue
+        for attempt_id in attempt_ids:
+            detail, raw_sha = audit_read.audits[attempt_id]
+            attempt_ref = trail.ref("cirra", alias, "production_audit", attempt_id)
+            comparison = detail["comparison"] or {}
+            classes: dict[str, str] = {}
+            for name in ("new", "open", "resolved"):
+                for key in comparison.get(name) or []:
+                    classes.setdefault(key, name)
+            # One observation per finding key, as Cirra compares them; resolved keys have no finding.
+            observed: dict[str, tuple[dict | None, str]] = {}
+            for index, finding in enumerate((detail["report"] or {}).get("findings") or []):
+                observed.setdefault(cirra.finding_key(finding), (finding, f"/report/findings/{index}"))
+            for index, key in enumerate(comparison.get("resolved") or []):
+                observed.setdefault(key, (None, f"/comparison/resolved/{index}"))
+            items = {key: cirra.item_id(detail["repository_key"], key) for key in observed}
+
+            evidence = [_evidence("cirra", alias, "audit", attempt_id, "/head", raw_sha)]
+            operator_cited = attempt_id in cited_attempts
+            if operator_cited:
+                evidence.append(_evidence("operator", objective.namespace, ANNOTATION_RECORD, objective.id,
+                                          f"/audit_attempts/{cited_attempts[attempt_id]}", annotation_sha))
+            run_cited = False
+            for item in items.values():
+                if item in cited_items:
+                    operator_cited = True
+                    evidence.append(_evidence("operator", objective.namespace, ANNOTATION_RECORD, objective.id,
+                                              f"/finding_items/{cited_items[item]}", annotation_sha))
+                if item in run_citations:
+                    run_cited = True
+                    evidence.extend(run_citations[item])
+            trail.link("has_production_audit", revision_ref, attempt_ref,
+                       "resolved" if operator_cited or run_cited else "candidate",
+                       "operator_annotated" if operator_cited else "owner_recorded",
+                       {"tier": _token_or_none(detail.get("tier")), "state": _token_or_none(detail.get("state")),
+                        "audit_id": _hex_or_none(detail.get("audit_id")),
+                        "baseline_attempt": _token_or_none(comparison.get("baseline_attempt"))},
+                       evidence[: schema.MAX_EVIDENCE_PER_LINK])
+            for key, (finding, pointer) in observed.items():
+                observation_ref = trail.ref("cirra", alias, "finding_observation", cirra.observation_id(attempt_id, key))
+                trail.link("observes_finding", attempt_ref, observation_ref, "resolved", "owner_recorded",
+                           {"item": items[key], "finding_key": _text_or_none(key),
+                            "severity": _token_or_none(finding.get("severity")) if finding else None,
+                            "comparison": _token_or_none(classes.get(key))},
+                           [_evidence("cirra", alias, "audit", attempt_id, pointer, raw_sha)])
+            _gate_link(trail, alias, attempt_ref, detail["audit_id"], audit_read)
+
+
+def _gate_link(trail, alias, attempt_ref, audit_id, audit_read):
+    """The gate as Cirra published or waived it; the latest waiver wins and shows its reason."""
+    gate = audit_read.gates.get(audit_id) if audit_id is not None else None
+    record, gate_sha = gate if gate is not None else (None, None)
+    waivers = record["waivers"] if record is not None else []
+    publication = (record["publication"] if record is not None else None) or {}
+    if waivers:
+        index, waiver = max(enumerate(waivers),
+                            key=lambda pair: (str(pair[1].get("waived_at")), str(pair[1].get("request_id"))))
+        blocking = waiver.get("blocking")
+        asserted = {"record": "waived", "gate": _token_or_none(waiver.get("gate")),
+                    "level": _token_or_none(waiver.get("level")), "conclusion": None,
+                    "blocking": len(blocking) if isinstance(blocking, list) else None,
+                    "waiver_reason": _text_or_none(waiver.get("reason"))}
+        pointer = f"/waivers/{index}"
+    elif publication:
+        asserted = {"record": "published", "gate": _token_or_none(publication.get("gate")), "level": None,
+                    "conclusion": _token_or_none(publication.get("conclusion")),
+                    "blocking": _count_or_none(publication.get("blocking")), "waiver_reason": None}
+        pointer = "/publication"
+    else:
+        trail.link("has_audit_gate", attempt_ref, None, "missing", None, {}, [])
+        return
+    gate_ref = trail.ref("cirra", alias, "audit_gate", audit_id)
+    trail.link("has_audit_gate", attempt_ref, gate_ref, "resolved", "owner_recorded", asserted,
+               [_evidence("cirra", alias, "gate", audit_id, pointer, gate_sha)])
+
+
 def _over_count_bounds(content: dict) -> bool:
     limits = {"refs": schema.MAX_REFS, "links": schema.MAX_LINKS, "gaps": schema.MAX_GAPS,
               "sources": schema.MAX_SOURCES, "coverage": schema.MAX_COVERAGE}
@@ -369,9 +532,10 @@ def _over_count_bounds(content: dict) -> bool:
 def attempt_objective(config: Config, objective: Objective, now: str, owner_cache=None) -> AttemptResult:
     store = objective.run_store
     policy = objective.policy
+    audit = objective.audit_store
 
     def sources(operator=("ok", ()), autowork_state=("unavailable", ()), policy_state=("unavailable", ()),
-                autowork_time=None):
+                autowork_time=None, cirra_state=("unavailable", ()), cirra_time=None):
         rows = [SourceResult("operator", objective.namespace, True, "live", operator[0], operator[1],
                              now if operator[0] == "ok" else None),
                 SourceResult("autowork", store.alias, True, store.mode, autowork_state[0], autowork_state[1],
@@ -379,16 +543,19 @@ def attempt_objective(config: Config, objective: Objective, now: str, owner_cach
         if policy is not None:
             rows.append(SourceResult("policy", policy.alias, False, "live", policy_state[0], policy_state[1],
                                      now if policy_state[0] == "ok" else None))
+        if audit is not None:
+            rows.append(SourceResult("cirra", audit.alias, False, audit.mode, cirra_state[0], cirra_state[1],
+                                     cirra_time))
         return tuple(rows)
 
     manifest_captured = None
     try:
         for round_number in range(2):
-            annotation_raw, run_ids = _read_annotation(objective)
+            annotation_raw, run_ids, cites = _read_annotation(objective)
             policy_before = _read_policy(objective)
             manifest_before = load_manifest(store.manifest) if store.mode == "saved_snapshot" else None
             before, after, located, owner_doc, version = _observe(config, objective, run_ids, owner_cache)
-            annotation_after, _ = _read_annotation(objective)
+            annotation_after, _, _ = _read_annotation(objective)
             policy_after = _read_policy(objective)
             manifest_after = load_manifest(store.manifest) if store.mode == "saved_snapshot" else None
             annotation_changed = annotation_raw != annotation_after
@@ -417,19 +584,32 @@ def attempt_objective(config: Config, objective: Objective, now: str, owner_cach
             status, policy_row, policy_state = "partial", ("unavailable", ("optional_source_unavailable",)), "unavailable"
         elif policy_before != policy_after:
             status, policy_row, policy_state = "partial", ("changed", ("source_changed_during_read",)), "changed"
+    audit_read, cirra_row, cirra_time = None, ("unavailable", ()), None
+    if audit is not None:
+        # Optional: a failed route read leaves the required trail intact and the entry partial.
+        try:
+            audit_read = cirra.read(audit, _heads(after, located))
+        except SourceError as exc:
+            status, cirra_row = "partial", (cirra.HEALTH.get(exc.code, "invalid"), (exc.code,))
+        else:
+            cirra_row = ("ok", ())
+            cirra_time = now if audit.mode == "live" else audit_read.captured_at
     try:
         content = _content(config, objective, annotation_raw, run_ids, after, located, owner_doc, version,
-                           manifest_captured, policy_after, policy_state)
+                           manifest_captured, policy_after, policy_state, audit_read, cites)
     except _Failure as f:
-        return AttemptResult("failed", None, sources(autowork_state=(f.health, (f.code,))))
+        return AttemptResult("failed", None, sources(autowork_state=(f.health, (f.code,)), cirra_state=cirra_row))
     if _over_count_bounds(content):
-        return AttemptResult("failed", None, sources(autowork_state=("ok", ())), ("over_bounds",))
+        return AttemptResult("failed", None, sources(autowork_state=("ok", ()), cirra_state=cirra_row),
+                             ("over_bounds",))
     try:
         schema.validate_content(content, objective.namespace, objective.id)
     except schema.SchemaError:
-        return AttemptResult("failed", None, sources(autowork_state=("invalid", ("required_input_invalid",))))
+        return AttemptResult("failed", None, sources(autowork_state=("invalid", ("required_input_invalid",)),
+                                                     cirra_state=cirra_row))
     return AttemptResult(status, content, sources(autowork_state=("ok", ()), policy_state=policy_row,
-                                                  autowork_time=autowork_time))
+                                                  autowork_time=autowork_time, cirra_state=cirra_row,
+                                                  cirra_time=cirra_time))
 
 
 def build_entries(config: Config, prior_doc: dict | None, now: str, owner_cache=None) -> list[dict]:

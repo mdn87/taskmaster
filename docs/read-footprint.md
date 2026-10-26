@@ -12,6 +12,7 @@ This records what Batch 1 actually reads, which owner version it trusts, and how
 | `autowork --version` | autowork | Subprocess, the output must match the pinned version | yes, same condition |
 | Policy file, when configured | policy | Raw bytes hashed (1 MiB cap), never parsed | no |
 | Chip mappings | taskmaster config | Config only; chip existence is never checked | not a source |
+| Cirra audit route, when an `audit_store` is configured | cirra | `GET` only, to 127.0.0.1: `/healthz`, one `/audits?head=` page (limit 200) per distinct recorded commit, `/audits/<attempt>` per listed attempt and `/gates/<audit>` per audit id; 4 MiB per response, 64 MiB and 2,048 responses per read; a second page for one head is `over_bounds` | no |
 
 Taskmaster never writes into any of these locations. The temporary annotation passed to the owner goes in the system temp directory, and the owner and validators leave a copied store byte-identical. `tests/test_corpus.py` checks this against the real owner and `tests/test_builder.py` checks it against the fake one.
 
@@ -59,6 +60,8 @@ of an implementation. An objective containing such a run reports
 | `saved_snapshot` | `captured_at` from the corpus manifest, or null when unknown | The footprint's file hashes must equal the manifest exactly, otherwise `required_input_invalid` |
 
 An unknown capture time stays unknown. The entry gets `evidence_time_unknown`, `last_success_at` is null, and every reader reports it as stale. Taskmaster never substitutes file modification times.
+
+A `cirra` store follows the same two modes. Live, the evidence time is the time of the successful read of the loopback route. Saved, it is the manifest's `captured_at`, and the recorded response files must match the manifest exactly, otherwise that optional source is `optional_source_invalid`. Every response of one read carries the audit store's generation; a generation that moves between responses retries the read once and then fails that source with `source_changed_during_read`. The envelope is pinned to protocol `cirra.audit-reads.v1` and Cirra store schema version 3; anything else is `owner_version_mismatch`. Each record's SHA-256 is checked against Cirra's canonical encoding before the record is used, and only the raw-byte digests of the responses enter the trail as inputs. The route exposes no webhook secrets and no audit packets, and Taskmaster never opens `cirra.sqlite3`.
 
 The frozen pilot corpus is `fixtures/corpus/retry-chain/manifest.json`, with 140 record files and `captured_at: null`. It was generated with `sources.manifest_for` from the Autowork repository's `tests/fixtures/dispatch-outcome/recorded/` tree. The corpus itself is not copied into this repository. `tests/test_corpus.py` copies it from a sibling checkout at test time and skips when that checkout is missing.
 

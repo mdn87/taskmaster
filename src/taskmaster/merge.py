@@ -210,7 +210,7 @@ def worst_case_observation_size() -> int:
                 "health": "unavailable",
                 "codes": sorted(schema.ERROR_CODES)[: schema.MAX_SOURCE_CODES],
             }
-            for i in range(3)
+            for i in range(4)  # operator, autowork, policy and an optional cirra audit store
         ],
     }
     from .canonical import canonical

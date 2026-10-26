@@ -7,6 +7,7 @@ in each objective's binding digest; they never appear in exported data.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,9 +29,11 @@ class ConfigError(ValueError):
 class Store:
     alias: str
     owner: str
-    path: Path
+    path: Path | None
     mode: str
     manifest: Path | None
+    url: str | None = None  # cirra live stores: the loopback audit route
+    repository: str | None = None  # cirra stores: the git store id of the revisions Cirra audits
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,7 @@ class Objective:
     policy: Policy | None
     label: str | None
     chips: tuple[Chip, ...]
+    audit_store: Store | None = None
     binding_sha256: str = ""
 
 
@@ -117,7 +121,31 @@ def binding_digest(objective: Objective) -> str:
         "chips": sorted([c.project_id, c.chip_id] for c in objective.chips),
         "label": objective.label,
     }
+    audit = objective.audit_store
+    if audit is not None:
+        # Present only when configured, so bindings without an audit store keep their digest.
+        value["audit_store"] = {
+            "alias": audit.alias,
+            "owner": audit.owner,
+            "mode": audit.mode,
+            "url": audit.url,
+            "path": _private(audit.path) if audit.path else None,
+            "manifest": _private(audit.manifest) if audit.manifest else None,
+            "repository": audit.repository,
+        }
     return sha256_hex(canonical(value))
+
+
+_LOOPBACK_URL = re.compile(r"http://127\.0\.0\.1(?::([0-9]{1,5}))?\Z")
+
+
+def loopback_port(url: Any) -> int:
+    """The port of a cirra route url. Any address other than 127.0.0.1 is a configuration error."""
+    match = _LOOPBACK_URL.match(url) if isinstance(url, str) else None
+    port = int(match.group(1)) if match and match.group(1) else 80
+    if match is None or not 1 <= port <= 65535:
+        raise ConfigError("a cirra store url must be http://127.0.0.1[:port]; the audit route is loopback only")
+    return port
 
 
 def load(path: str | os.PathLike) -> Config:
@@ -132,6 +160,25 @@ def load(path: str | os.PathLike) -> Config:
         return _build(config_path, raw)
     except IdentityError as exc:
         raise ConfigError(str(exc)) from None
+
+
+def _cirra_store(s: dict, what: str, base: Path, claim) -> Store:
+    """A cirra audit store: the loopback route when live, recorded responses with a manifest when saved."""
+    _table(s, what, {"alias", "owner", "mode", "url", "path", "manifest", "repository"},
+           {"alias", "owner", "mode", "repository"})
+    alias = claim(s["alias"], f"{what}.alias")
+    repository = validate_token(s["repository"], f"{what}.repository")
+    if s["mode"] == "live":
+        if "url" not in s or "path" in s or "manifest" in s:
+            raise ConfigError(f"{what}: a live cirra store names a url and no path or manifest")
+        loopback_port(s["url"])
+        return Store(alias, "cirra", None, "live", None, s["url"], repository)
+    if s["mode"] != "saved_snapshot":
+        raise ConfigError(f"{what}.mode must be live or saved_snapshot")
+    if "url" in s or "path" not in s or "manifest" not in s:
+        raise ConfigError(f"{what}: a saved_snapshot cirra store names a path and a manifest and no url")
+    return Store(alias, "cirra", _resolve(base, s["path"], f"{what}.path"), "saved_snapshot",
+                 _resolve(base, s["manifest"], f"{what}.manifest"), None, repository)
 
 
 def _build(config_path: Path, raw: dict) -> Config:
@@ -168,10 +215,14 @@ def _build(config_path: Path, raw: dict) -> Config:
 
     stores: dict[str, Store] = {}
     for i, s in enumerate(raw["stores"]):
+        if isinstance(s, dict) and s.get("owner") == "cirra":
+            store = _cirra_store(s, f"stores[{i}]", base, claim)
+            stores[store.alias] = store
+            continue
         _table(s, f"stores[{i}]", {"alias", "owner", "path", "mode", "manifest"}, {"alias", "owner", "path", "mode"})
         alias = claim(s["alias"], f"stores[{i}].alias")
         if s["owner"] != "autowork":
-            raise ConfigError(f"stores[{i}].owner must be 'autowork' in v1")
+            raise ConfigError(f"stores[{i}].owner must be 'autowork' or 'cirra'")
         if s["mode"] not in ("live", "saved_snapshot"):
             raise ConfigError(f"stores[{i}].mode must be live or saved_snapshot")
         manifest = s.get("manifest")
@@ -205,7 +256,7 @@ def _build(config_path: Path, raw: dict) -> Config:
     seen: set[tuple[str, str]] = set()
     namespaces: set[str] = set()
     for i, o in enumerate(raw["objectives"]):
-        _table(o, f"objectives[{i}]", {"namespace", "id", "annotation", "run_store", "policy", "label"},
+        _table(o, f"objectives[{i}]", {"namespace", "id", "annotation", "run_store", "policy", "label", "audit_store"},
                {"namespace", "id", "annotation", "run_store"})
         namespace = validate_id(o["namespace"], f"objectives[{i}].namespace")
         validate_token(namespace, f"objectives[{i}].namespace")
@@ -215,8 +266,13 @@ def _build(config_path: Path, raw: dict) -> Config:
         seen.add((namespace, objective_id))
         namespaces.add(namespace)
         store = stores.get(o["run_store"])
-        if store is None:
-            raise ConfigError(f"objectives[{i}].run_store names no configured store")
+        if store is None or store.owner != "autowork":
+            raise ConfigError(f"objectives[{i}].run_store names no configured autowork store")
+        audit_store = None
+        if "audit_store" in o:
+            audit_store = stores.get(o["audit_store"])
+            if audit_store is None or audit_store.owner != "cirra":
+                raise ConfigError(f"objectives[{i}].audit_store names no configured cirra store")
         policy = None
         if "policy" in o:
             policy = policies.get(o["policy"])
@@ -225,7 +281,7 @@ def _build(config_path: Path, raw: dict) -> Config:
         label = validate_label(o["label"], f"objectives[{i}].label") if "label" in o else None
         chips = tuple(sorted(chip_rows.pop((namespace, objective_id), []), key=lambda c: (c.project_id, c.chip_id)))
         objective = Objective(namespace, objective_id, _resolve(base, o["annotation"], f"objectives[{i}].annotation"),
-                              store, policy, label, chips)
+                              store, policy, label, chips, audit_store)
         objectives.append(Objective(**{**objective.__dict__, "binding_sha256": binding_digest(objective)}))
 
     if chip_rows:

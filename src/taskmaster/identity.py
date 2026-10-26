@@ -8,6 +8,7 @@ import unicodedata
 MAX_ID_BYTES = 512
 MAX_TOKEN_BYTES = 128
 MAX_LABEL_BYTES = 160
+MAX_TEXT_BYTES = 4096
 MAX_POINTER_BYTES = 1280
 
 _TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:+-]*\Z")
@@ -44,6 +45,11 @@ def validate_id(value: object, what: str = "id") -> str:
 
 def validate_label(value: object, what: str = "label") -> str:
     return _scalar_text(value, what, MAX_LABEL_BYTES)
+
+
+def validate_text(value: object, what: str = "text") -> str:
+    """Owner prose copied into a link, such as a waiver reason: bounded, no control characters."""
+    return _scalar_text(value, what, MAX_TEXT_BYTES)
 
 
 def validate_token(value: object, what: str = "token") -> str:
