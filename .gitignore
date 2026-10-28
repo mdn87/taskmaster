@@ -20,3 +20,6 @@ dist/
 
 # Local audit receipts
 .lugos-audit/
+
+# Local Lugos work-in-progress state
+.lugos-wip/
