@@ -7,6 +7,12 @@ file it starts a workspace trail for the note's folder (see `workspaces`), then
 publishes the handoff projection under the watcher's cycle lock so the note is
 recorded at once. It never edits the note, and always exits 0 so a hook failure
 cannot block the agent.
+
+When the note names a divergence-register id (`DV-###` or `CN-###`, from the
+note's "## Concept And Divergence" section), the hook also checks that the
+project's `docs/divergence-register.md` has that entry and says so when it does
+not. That is a report, not a block; the register's format is owned by the Lugos
+plan `docs/superpowers/plans/2026-10-28-concept-divergence-register.md`.
 """
 import argparse
 import json
@@ -107,6 +113,40 @@ def record(note, cfg):
     return True, f'{started}Recorded {note} in Taskmaster ({statuses}).'
 
 
+REGISTER_REF = re.compile(r'\b(?:CN|DV)-\d{3}\b')
+REGISTER_ENTRY = re.compile(r'^(?:CN|DV)-\d{3}$')
+
+
+def register_ids(text):
+    """Entry ids in a divergence register: fenced blocks whose first non-empty line is an id."""
+    ids, fenced, first = set(), False, None
+    for line in text.splitlines():
+        if line.startswith('```'):
+            fenced, first = not fenced, None
+        elif fenced and first is None and line.strip():
+            first = line.strip()
+            if REGISTER_ENTRY.match(first):
+                ids.add(first)
+    return ids
+
+
+def register_check(note):
+    """One sentence when the note names a register id its project's register lacks, else ''."""
+    register = note.absolute().parent.parent / 'docs' / 'divergence-register.md'
+    try:
+        named = sorted(set(REGISTER_REF.findall(note.read_text(encoding='utf-8', errors='replace'))))
+        if not named:
+            return ''
+        if not register.is_file():
+            return f'The note names {", ".join(named)} but {register} does not exist. '
+        missing = [i for i in named if i not in register_ids(register.read_text(encoding='utf-8', errors='replace'))]
+    except OSError as exc:
+        return f'Could not check the note\'s divergence-register references ({exc}). '
+    if missing:
+        return f'The note names {", ".join(missing)}, which {register} does not have; fix the id or add the entry. '
+    return ''
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='taskmaster.handoff_hook')
     parser.add_argument('--config', default=str(Path(__file__).resolve().parents[2] / 'taskmaster.toml'))
@@ -122,6 +162,9 @@ def main(argv=None):
         print(json.dumps({'systemMessage': f'Taskmaster handoff hook failed: {type(exc).__name__}: {exc}'}))
         return 0
     message = ' '.join(text for _, text in results)
+    references = ''.join(register_check(note) for note in notes).strip()
+    if references:
+        message = f'{message} {references}'
     if all(valid for valid, _ in results):
         print(json.dumps({'hookSpecificOutput': {'hookEventName': 'PostToolUse', 'additionalContext': message},
                           'systemMessage': message}))

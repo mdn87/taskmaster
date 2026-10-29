@@ -81,6 +81,45 @@ class HandoffHookTests(Workspace):
         self.assertIsNone(self.run_hook({'tool_name': 'Write', 'tool_input': {'file_path': str(self.root/'README.md')}}))
         self.assertIsNone(self.run_hook({'tool_name': 'Bash', 'tool_input': {'command': 'ls'}}))
 
+    TRIPLET = ('\n## Concept And Divergence\n- Concept changed: none\n'
+               '- Divergence changed: DV-001 introduced\n- Ready for review: none\n')
+    REGISTER = ('# Divergence register\n\nFormat example:\n\n```\nkey: value\n```\n\n'
+                '```\nCN-001\ndescription: x\nsource: demonstrated\nstatus: active\n```\n\n'
+                '```\nDV-001\nconcept: C-01\nstatus: accepted\nhistory:\n  2026-10-29 new>accepted retain: seeded\n```\n')
+
+    def write_register(self):
+        register = self.root/'docs'/'divergence-register.md'
+        register.parent.mkdir(parents=True, exist_ok=True)
+        register.write_text(self.REGISTER, encoding='utf-8')
+        return register
+
+    def test_triplet_section_is_accepted_and_a_known_id_passes_silently(self):
+        self.write_register()
+        self.note.write_text(FRESH_NOTE + self.TRIPLET, encoding='utf-8')
+        message = self.run_hook({'tool_name': 'Write', 'tool_input': {'file_path': str(self.note)}})['hookSpecificOutput']['additionalContext']
+        self.assertIn('Handoff saved', message)
+        self.assertNotIn('does not have', message)
+
+    def test_dangling_register_id_is_reported_but_still_recorded(self):
+        register = self.write_register()
+        self.note.write_text(FRESH_NOTE + self.TRIPLET.replace('DV-001', 'DV-999'), encoding='utf-8')
+        result = self.run_hook({'tool_name': 'Write', 'tool_input': {'file_path': str(self.note)}})
+        message = result['hookSpecificOutput']['additionalContext']
+        self.assertIn('Handoff saved', message)
+        self.assertIn(f'The note names DV-999, which {register} does not have', message)
+        self.assertNotIn('decision', result)
+
+    def test_register_id_without_a_register_is_reported(self):
+        self.note.write_text(FRESH_NOTE + self.TRIPLET, encoding='utf-8')
+        message = self.run_hook({'tool_name': 'Write', 'tool_input': {'file_path': str(self.note)}})['hookSpecificOutput']['additionalContext']
+        self.assertIn('Handoff saved', message)
+        self.assertIn('The note names DV-001 but', message)
+        self.assertIn('does not exist', message)
+
+    def test_register_ids_reads_entry_fences_only(self):
+        self.assertEqual(handoff_hook.register_ids(self.REGISTER), {'CN-001', 'DV-001'})
+        self.assertEqual(handoff_hook.register_ids('no fences'), set())
+
     def test_busy_watcher_is_reported_without_overwriting_the_projection(self):
         (self.tmp/'state').mkdir()
         with publication.writer_lock(self.tmp/'state'/'cycle'):
