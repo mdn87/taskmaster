@@ -8,15 +8,15 @@ annotation stays empty. A whole project root can hold more runs than one trail's
 
 Files are written in an order where every intermediate state still loads: the
 annotation, then the objective in taskmaster.toml, then the watch rule and handoff
-sources in the watch settings. Existing configuration is never rewritten, only
-extended; a failed validation restores both files.
+sources in the watch settings. At capacity, the longest-inactive eligible trail is archived before replacement.
+A failed validation restores both configuration files; evidence is never deleted.
 """
 import hashlib
 import json
 from pathlib import Path
 import re
 
-from . import config, handoffs, publication, watch
+from . import config, handoffs, publication, watch, timefmt
 
 OBJECTIVE_ID = 'workspace'
 
@@ -61,7 +61,7 @@ def _toml_string(value):
     return json.dumps(value)  # A JSON string is a valid TOML basic string.
 
 
-def ensure(config_path, root):
+def ensure(config_path, root, *, on_registered=None):
     """Return (objective, changed, started) for a workspace folder.
 
     `changed` is true when a trail was started or the folder's notes were newly bound.
@@ -79,7 +79,7 @@ def ensure(config_path, root):
         raise WorkspaceError('workspace registration is remote-owned; use /taskmaster workspace add')
     state = Path(settings['state_dir'])
     state.mkdir(parents=True, exist_ok=True)
-    with publication.writer_lock(state / 'workspaces'):
+    with publication.writer_lock(state / 'workspaces'), publication.writer_lock(state / 'cycle'), publication.writer_lock(state / 'registrations'):
         cfg = config.load(config_path)
         settings = watch.load_settings(settings_path, cfg)
         raw = watch.read_json(settings_path)
@@ -88,10 +88,14 @@ def ensure(config_path, root):
             raise WorkspaceError(f'{root} is claimed by several trails ({", ".join(existing)}); choose one in the watch settings')
         if existing:
             return existing[0], _add_sources(config_path, settings_path, raw, settings, existing[0], root), False
-        if len(cfg.objectives) >= config.MAX_OBJECTIVES or len(raw['rules']) >= 64:
-            raise WorkspaceError('Taskmaster already has the maximum of 64 trails; retire one before starting another')
         taken = {o.namespace for o in cfg.objectives if o.id == OBJECTIVE_ID}
         taken |= {o.run_store.alias for o in cfg.objectives}
+        # Retired annotations remain recoverable and must never be overwritten.
+        for archived in (state / 'retired-trails').glob('*.json'):
+            receipt = watch.read_json(archived)
+            prior = receipt.get('objective', '')
+            if not receipt.get('rolled_back') and prior.endswith('/workspace'):
+                taken.add(prior.rsplit('/', 1)[0])
         namespace = _namespace(root, taken)
         objective = namespace + '/' + OBJECTIVE_ID
         store = _store(cfg)
@@ -99,7 +103,12 @@ def ensure(config_path, root):
         if annotation.exists():
             raise WorkspaceError(f'{annotation} already exists; not overwriting it')
         old_toml, old_settings = config_path.read_bytes(), settings_path.read_bytes()
+        archive = None
         try:
+            text = old_toml.decode('utf-8')
+            if len(cfg.objectives) >= config.MAX_OBJECTIVES or len(raw['rules']) >= 64:
+                from . import retirement
+                text, raw, archive = retirement.prepare(cfg, settings, raw, old_toml, old_settings, timefmt.now())
             watch.atomic_json(annotation, {'objective_id': OBJECTIVE_ID, 'run_ids': []})
             try:
                 rel = annotation.relative_to(config_path.parent).as_posix()
@@ -111,7 +120,6 @@ def ensure(config_path, root):
                      f'annotation = {_toml_string(rel)}\n'
                      f'run_store = {_toml_string(store.alias)}\n'
                      f'label = {_toml_string(root.name[:200])}\n')
-            text = old_toml.decode('utf-8')
             watch.atomic_bytes(config_path, (text + ('' if text.endswith('\n') else '\n') + block).encode('utf-8'))
             raw['rules'].append({'namespace': namespace, 'id': OBJECTIVE_ID, 'workspace': str(root),
                                  'record': 'request-summary.json', 'anchors': [], 'project_ids': [],
@@ -121,10 +129,16 @@ def ensure(config_path, root):
                                                        'path': str(root / folder / 'handoff.md')})
             watch.atomic_json(settings_path, raw)
             watch.load_settings(settings_path, config.load(config_path))
+            if on_registered is not None:
+                on_registered(objective, archive)
         except Exception:
             watch.atomic_bytes(config_path, old_toml)
             watch.atomic_bytes(settings_path, old_settings)
             annotation.unlink(missing_ok=True)
+            if archive is not None:
+                receipt = watch.read_json(archive)
+                receipt['rolled_back'] = True
+                watch.atomic_json(archive, receipt)
             raise
         return objective, True, True
 
