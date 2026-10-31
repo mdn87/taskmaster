@@ -91,16 +91,36 @@ def ensure_workspace(config_path,owner_path,value):
     if matches:
         matches[0]['workspace_keys']=sorted(keys|set(matches[0].get('workspace_keys',[])))
         watch.atomic_json(cfg.watch,raw)
-    objective,changed,new=workspaces.ensure(config_path,mirror)
-    raw=watch.read_json(cfg.watch)
-    rule=next(r for r in raw['rules'] if r['namespace']+'/'+r['id']==objective)
-    rule['workspace_keys']=sorted(keys|set(rule.get('workspace_keys',[])))
-    watch.atomic_json(cfg.watch,raw)
-    collector=watch.read_json(Path(owner['collector_config']))
-    for binding in raw.get('handoffs',[]):
-        if binding['objective']==objective:
-            collector['notes'][binding['path']]=str(PureWindowsPath(source)/handoffs.FOLDERS[binding['provider']]/'handoff.md')
-    watch.atomic_json(Path(owner['collector_config']),collector)
+    prior_note_paths={b['path'] for b in raw.get('handoffs',[])}
+    collector_path=Path(owner['collector_config'])
+    collector_before=collector_path.read_bytes()
+    collector=watch.owner_json(collector_before)  # Validate before any retirement.
+    if not isinstance(collector.get('notes'),dict):
+        raise ValueError('invalid collector notes')
+    def finalize(objective, archive):
+        current=watch.read_json(cfg.watch)
+        rule=next(r for r in current['rules'] if r['namespace']+'/'+r['id']==objective)
+        rule['workspace_keys']=sorted(keys|set(rule.get('workspace_keys',[])))
+        remaining_note_paths={b['path'] for b in current.get('handoffs',[])}
+        updated=json.loads(json.dumps(collector))
+        for retired_path in prior_note_paths-remaining_note_paths:
+            updated['notes'].pop(retired_path,None)
+        for binding in current.get('handoffs',[]):
+            if binding['objective']==objective:
+                updated['notes'][binding['path']]=str(PureWindowsPath(source)/handoffs.FOLDERS[binding['provider']]/'handoff.md')
+        if archive is not None:
+            receipt=watch.read_json(archive)
+            receipt.update(collector_path=str(collector_path),collector_before=base64.b64encode(collector_before).decode())
+            watch.atomic_json(archive,receipt)
+        try:
+            watch.atomic_json(cfg.watch,current)
+            watch.atomic_json(collector_path,updated)
+        except Exception:
+            watch.atomic_bytes(collector_path,collector_before)
+            raise
+    objective,changed,new=workspaces.ensure(config_path,mirror,on_registered=finalize)
+    if not new:
+        finalize(objective,None)
     return {'objective':objective,'started':new,'notes_bound':changed}
 
 

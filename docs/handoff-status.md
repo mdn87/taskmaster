@@ -103,8 +103,32 @@ records the note. `/taskmaster workspace add PATH` does the same by hand.
   discovery: a project root can hold more runs than one trail's 64 KiB content
   bound allows, and those runs belong to narrower trails. An annotation with no
   runs is a valid, empty trail.
-- Files are written annotation first, then `taskmaster.toml`, then the watch
-  settings, so every intermediate state loads. Existing entries are only
-  extended. If the result does not validate, both files are restored.
-- The 64-trail limit still applies; at the limit the note is reported, not
-  recorded, and nothing is written.
+- Ordinary registration writes annotation first, then `taskmaster.toml`, then
+  the watch settings, extending existing entries. Capacity retirement replaces
+  registrations while holding the writer locks described below. If validation
+  or remote collector update fails, configuration is restored.
+- At the 64-objective or 64-watch-rule limit, registration archives and retires
+  the eligible trail with the earliest **last activity**, then registers the new
+  workspace. Age since creation is never the selection criterion. Activity is the
+  latest source handoff timestamp, session-assignment observation/end time, or
+  member-run evidence-file modification time. A copied corpus can conservatively
+  make old activity appear newer; refresh/export times and run-ID dates are not
+  activity. A trail must have been inactive for at least seven days. Ties use its
+  objective name. When the rule limit is full, only a watched objective frees space.
+- Current session observations are required. Active sessions, nonterminal or
+  missing run evidence, invalid/unavailable notes, unknown activity and incomplete
+  discovery prevent retirement of affected trails. If no safe candidate remains,
+  registration reports the reason and changes no registrations.
+- Retirement saves the complete prior configuration, watch settings, annotation,
+  selection timestamps and evidence locations in `state_dir/retired-trails/`.
+  Remote registration also saves the collector mapping and restores it if its
+  update fails. A retired workspace registered again gets a new namespace
+  suffix, preserving the old annotation.
+  It removes only the live objective, chip mappings, watch rule and handoff
+  bindings; original annotations, run evidence and session/handoff history remain.
+  The remote collector removes only note paths whose bindings were retired.
+  Registration and retirement share the workspace/cycle/registration locks; failed
+  validation restores both configuration files and marks the archive rolled back.
+  Restore a retired registration from its archive only while holding those locks
+  and after checking available capacity; never overwrite current configuration
+  blindly. The archive is an audit/rollback record, not a claim work was completed.
