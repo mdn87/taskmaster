@@ -137,7 +137,7 @@ class RetirementTests(test_workspaces.WorkspaceTrailTests):
         raw['handoffs']=[{'objective':'ops/obj-1','provider':'codex','path':old_note}]
         write_json(self.tmp/'watch.json',raw)
         collector=write_json(self.tmp/'collector.json',{'notes':{old_note:'old-source','unrelated':'keep'}})
-        owner=write_json(self.tmp/'owner.json',{'source_root':str(self.tmp),'client_root':'/Users/matt/MyDocs','workspace_root':str(self.tmp/'mirrors'),'collector_config':str(collector)})
+        owner=write_json(self.tmp/'owner.json',{'source_root':str(self.tmp),'client_root':str(self.tmp),'workspace_root':str(self.tmp/'mirrors'),'collector_config':str(collector)})
         before=(self.cfg.read_bytes(),(self.tmp/'watch.json').read_bytes(),collector.read_bytes())
         original=watch.atomic_json
         def fail_collector(path,value):
