@@ -24,7 +24,7 @@ def doctor(**extra):
 
 
 def projection(health,status='current'):
-    return {'schema':tuan_health.PROJECTION,'evaluated_at':NOW,'status':status,'health':health}
+    return {'schema':tuan_health.PROJECTION,'evaluated_at':NOW,'hosts':{'4070pc':{'status':status,'health':health}}}
 
 
 class ObserveTests(unittest.TestCase):
@@ -132,7 +132,7 @@ class RenderTests(unittest.TestCase):
                (projection(self.health(status='error',error='tuan_missing',version=None)),'check failed (tuan_missing)'),
                (projection(self.health(observed_at='2026-11-03T05:00:00Z')),'stale since 2026-11-03T05:00:00Z'),
                (projection(None),'no health observation yet'),
-               (projection(None,'unavailable'),'unavailable (remote context not current)')]
+               (projection(None,'unavailable'),'unavailable (no readable collector snapshot)')]
         for value,expected in cases:
             self.assertIn(expected,tuan_health.render(value,NOW))
 
@@ -141,7 +141,7 @@ class RenderTests(unittest.TestCase):
             export=Path(t)/'export.json'
             self.assertEqual(morning_report.tuan_context(export,NOW),b'')
             (Path(t)/'tuan-health.json').write_text(json.dumps(projection(self.health())))
-            self.assertTrue(morning_report.tuan_context(export,NOW).startswith(b'Tuan collection: healthy'))
+            self.assertTrue(morning_report.tuan_context(export,NOW).startswith(b'Tuan collection (4070pc): healthy'))
             (Path(t)/'tuan-health.json').write_text('{"schema": 1}')
             self.assertEqual(morning_report.tuan_context(export,NOW),b'Tuan collection: unavailable\n')
 
@@ -150,8 +150,26 @@ class RenderTests(unittest.TestCase):
             settings={'context_file':str(Path(t)/'none.json'),'export':str(Path(t)/'out/export.json')}
             (Path(t)/'out').mkdir()
             value=tuan_health.publish(settings,NOW)
-            self.assertEqual((value['status'],value['health']),('unavailable',None))
+            self.assertEqual(value['hosts'],{'workstation':{'status':'unavailable','health':None}})
             self.assertEqual(json.loads((Path(t)/'out/tuan-health.json').read_text()),value)
+
+
+@unittest.skipUnless(HAS_SOURCE_ZONE,'snapshots validate the source zone; the watcher runs on the Linux owner')
+class MultiHostTests(unittest.TestCase):
+    def test_one_line_per_host_and_old_snapshots_go_stale(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t);(root/'out').mkdir()
+            health={'observed_at':'2026-11-03T02:00:00Z','status':'current','error':None,'version':'0.15.1',
+                    'attention':[],'definite':[],'tools':{}}
+            snap={'schema':remote_context.V2,'observed_at':'2026-11-03T02:00:05Z','max_age_seconds':45,'timezone':'America/New_York',
+                  'dias_status':'unavailable','context':None,'notes':{},'tuan_health':health}
+            (root/'mac.json').write_text(json.dumps(snap))
+            (root/'pc.json').write_text(json.dumps({**snap,'tuan_health':{**health,'observed_at':'2026-11-03T11:50:00Z'},'observed_at':'2026-11-03T11:59:50Z'}))
+            settings={'export':str(root/'out/export.json'),'tuan_hosts':{'applemac':str(root/'mac.json'),'4070pc':str(root/'pc.json'),'gone':str(root/'none.json')}}
+            text=tuan_health.render(tuan_health.publish(settings,NOW),NOW)
+            self.assertEqual(text.splitlines(),['Tuan collection (4070pc): healthy at 2026-11-03T11:50:00Z (tuan 0.15.1)',
+                                                'Tuan collection (applemac): health observation stale since 2026-11-03T02:00:00Z',
+                                                'Tuan collection (gone): unavailable (no readable collector snapshot)'])
 
 
 if __name__=='__main__':

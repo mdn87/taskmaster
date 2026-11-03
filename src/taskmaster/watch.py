@@ -75,7 +75,7 @@ def normalized(value):
 def load_settings(path, cfg):
     path = Path(path).absolute()
     raw = read_json(path)
-    allowed = {'schema_version', 'source', 'state_dir', 'export', 'interval_seconds', 'rules', 'dias_url', 'handoffs', 'context_file', 'remote_owner'}
+    allowed = {'schema_version', 'source', 'state_dir', 'export', 'interval_seconds', 'rules', 'dias_url', 'handoffs', 'context_file', 'remote_owner', 'tuan_hosts'}
     if set(raw) - allowed or type(raw.get('schema_version')) is not int or raw['schema_version'] != 1:
         raise WatchError('unsupported watch configuration')
     for key in ('source', 'state_dir', 'export'):
@@ -92,6 +92,13 @@ def load_settings(path, cfg):
         if not isinstance(raw['context_file'], str) or not raw['context_file'] or 'dias_url' in raw:
             raise WatchError('context_file must be explicit and replaces dias_url')
         raw['context_file'] = str((path.parent / raw['context_file']).absolute())
+    if 'tuan_hosts' in raw:
+        from .tuan_health import HOST
+        hosts = raw['tuan_hosts']
+        if (not isinstance(hosts, dict) or not 1 <= len(hosts) <= 8
+                or any(not isinstance(k, str) or not HOST.fullmatch(k) or not isinstance(v, str) or not v for k, v in hosts.items())):
+            raise WatchError('tuan_hosts maps host labels to snapshot files')
+        raw['tuan_hosts'] = {k: str((path.parent / v).absolute()) for k, v in hosts.items()}
     if 'remote_owner' in raw:
         from .remote_owner import transport
         transport(raw)

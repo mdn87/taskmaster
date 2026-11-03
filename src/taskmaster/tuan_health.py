@@ -24,6 +24,7 @@ ERRORS = ('tuan_missing', 'store_pointer_missing', 'doctor_timeout', 'doctor_fai
 DOCTOR_TIMEOUT = 10
 STALE_AFTER = 6 * 3600
 NAME = re.compile(r'[a-z_]{1,32}')
+HOST = re.compile(r'[a-z0-9][a-z0-9-]{0,31}')
 KEYS = {'observed_at', 'status', 'error', 'version', 'attention', 'definite', 'tools'}
 
 
@@ -109,50 +110,68 @@ def validate(value):
 
 
 def validate_projection(value):
-    if (not isinstance(value, dict) or set(value) != {'schema', 'evaluated_at', 'status', 'health'}
+    if (not isinstance(value, dict) or set(value) != {'schema', 'evaluated_at', 'hosts'}
             or value['schema'] != PROJECTION or not timefmt.is_valid(value['evaluated_at'])
-            or value['status'] not in ('current', 'unavailable')):
+            or not isinstance(value['hosts'], dict) or not 1 <= len(value['hosts']) <= 8):
         raise ValueError('invalid Tuan health projection')
-    if value['health'] is not None:
-        validate(value['health'])
+    for label, host in value['hosts'].items():
+        if (not isinstance(label, str) or not HOST.fullmatch(label) or not isinstance(host, dict)
+                or set(host) != {'status', 'health'} or host['status'] not in ('current', 'unavailable')):
+            raise ValueError('invalid Tuan health projection')
+        if host['health'] is not None:
+            validate(host['health'])
     return value
 
 
-def project(snapshot, now):
-    """The watcher's view: the envelope's latest observation, or unavailable."""
-    health = snapshot.get('tuan_health') if snapshot else None
-    return {'schema': PROJECTION, 'evaluated_at': now, 'status': 'current' if snapshot else 'unavailable', 'health': health}
+def _snapshot(path, now):
+    """A collector snapshot judged by structure only; the observation's own age decides staleness."""
+    from . import remote_context
+    from .strictjson import loads
+    with Path(path).open('rb') as stream:
+        raw = stream.read(remote_context.MAX_BYTES + 1)
+    value = loads(raw, max_bytes=remote_context.MAX_BYTES)
+    if not isinstance(value, dict) or not timefmt.is_valid(value.get('observed_at')) or value['observed_at'] > now:
+        raise ValueError('invalid snapshot time')
+    return remote_context.validate(value, value['observed_at'])
 
 
 def publish(settings, now):
-    if not settings.get('context_file'):
+    hosts = settings.get('tuan_hosts') or ({'workstation': settings['context_file']} if settings.get('context_file') else None)
+    if not hosts:
         return None
-    from . import remote_context, watch
-    try:
-        snapshot = remote_context.read(settings, now)
-    except (OSError, ValueError):
-        snapshot = None
-    value = validate_projection(project(snapshot, now))
+    from . import watch
+    projected = {}
+    for label, path in hosts.items():
+        try:
+            snapshot = _snapshot(path, now)
+            projected[label] = {'status': 'current', 'health': snapshot.get('tuan_health')}
+        except (OSError, ValueError, KeyError):
+            projected[label] = {'status': 'unavailable', 'health': None}
+    value = validate_projection({'schema': PROJECTION, 'evaluated_at': now, 'hosts': projected})
     watch.atomic_json(Path(settings['export']).parent / 'tuan-health.json', value)
     return value
 
 
 def render(value, now):
-    """One line for the morning report; a missing or stale observation is a gap."""
+    """One line per host for the morning report; a missing or stale observation is a gap."""
     validate_projection(value)
-    health = value['health']
-    if value['status'] != 'current':
-        return 'Tuan collection: unavailable (remote context not current)\n'
+    return ''.join(_line(label, host, now) for label, host in sorted(value['hosts'].items()))
+
+
+def _line(label, host, now):
+    prefix = f'Tuan collection ({label}): '
+    health = host['health']
+    if host['status'] != 'current':
+        return prefix + 'unavailable (no readable collector snapshot)\n'
     if health is None:
-        return 'Tuan collection: no health observation yet\n'
-    age = timefmt.seconds_between(health['observed_at'], now)
-    if age > STALE_AFTER:
-        return f"Tuan collection: health observation stale since {health['observed_at']}\n"
+        return prefix + 'no health observation yet\n'
+    if timefmt.seconds_between(health['observed_at'], now) > STALE_AFTER:
+        return prefix + f"health observation stale since {health['observed_at']}\n"
     if health['status'] == 'error':
-        return f"Tuan collection: check failed ({health['error']}) at {health['observed_at']}\n"
+        return prefix + f"check failed ({health['error']}) at {health['observed_at']}\n"
     names = list(dict.fromkeys(health['definite'] + health['attention']))
     if not names:
-        return f"Tuan collection: healthy at {health['observed_at']} (tuan {health['version'] or 'unknown'})\n"
+        return prefix + f"healthy at {health['observed_at']} (tuan {health['version'] or 'unknown'})\n"
     parts = []
     for name in names:
         if name == 'collection':
@@ -161,4 +180,4 @@ def render(value, now):
             parts.append('collection (' + '; '.join(gaps) + ')' if gaps else 'collection')
         else:
             parts.append(name)
-    return f"Tuan collection: needs attention: {', '.join(parts)} at {health['observed_at']}\n"
+    return prefix + f"needs attention: {', '.join(parts)} at {health['observed_at']}\n"
