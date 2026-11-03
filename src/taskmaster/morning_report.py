@@ -59,6 +59,25 @@ def handoff_context(export_path: Path, now: str) -> bytes:
         return b'\nTaskmaster handoff: unavailable\n'
 
 
+def tuan_context(export_path: Path, now: str) -> bytes:
+    """One Tuan collection line when the watcher publishes tuan-health.json."""
+    path = export_path.with_name('tuan-health.json')
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return b''
+    except OSError:
+        return b'Tuan collection: unavailable\n'
+    from . import tuan_health
+    from .strictjson import loads
+    try:
+        with path.open('rb') as stream:
+            raw = stream.read(64 * 1024 + 1)
+        return tuan_health.render(loads(raw, max_bytes=64 * 1024), now).encode('utf-8')
+    except (OSError, ValueError):
+        return b'Tuan collection: unavailable\n'
+
+
 def prepare(export_path: Path | None, now: str) -> Prepared:
     if export_path is None:
         return Prepared()
@@ -82,6 +101,9 @@ def prepare(export_path: Path | None, now: str) -> Prepared:
     except UnicodeError:
         return Prepared(error="renderer_invalid_output")
     context = handoff_context(export_path, now)
+    tuan = tuan_context(export_path, now)
+    if tuan:
+        context += tuan if context else b'\n' + tuan
     if (len(block) + len(context) > MAX_BLOCK or b'\r' in context
             or (context and not context.endswith(b'\n'))
             or b'<!-- BEGIN TASKMASTER' in context or b'<!-- END TASKMASTER' in context

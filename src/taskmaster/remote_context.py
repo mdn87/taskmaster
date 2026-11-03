@@ -19,13 +19,20 @@ from .strictjson import loads
 
 MAX_BYTES = 20 * 1024 * 1024
 MAX_NOTE = 64 * 1024
+V1 = 'taskmaster.remote-context/v1'
+V2 = 'taskmaster.remote-context/v2'  # adds tuan_health (Tuan collection watch)
+KEYS = {'schema','observed_at','max_age_seconds','timezone','dias_status','context','notes'}
+TUAN_INTERVAL = 900
 
 
 def validate(value, now):
-    if not isinstance(value, dict) or set(value) != {'schema','observed_at','max_age_seconds','timezone','dias_status','context','notes'}:
+    if not isinstance(value, dict) or set(value) != (KEYS | {'tuan_health'} if value.get('schema') == V2 else KEYS):
         raise ValueError('invalid remote context envelope')
-    if value['schema'] != 'taskmaster.remote-context/v1' or type(value['max_age_seconds']) is not int or not 1 <= value['max_age_seconds'] <= 60:
+    if value['schema'] not in (V1, V2) or type(value['max_age_seconds']) is not int or not 1 <= value['max_age_seconds'] <= 60:
         raise ValueError('invalid remote context schema or age')
+    if value['schema'] == V2 and value['tuan_health'] is not None:
+        from . import tuan_health
+        tuan_health.validate(value['tuan_health'])
     age = timefmt.seconds_between(value['observed_at'], now)
     if not 0 <= age <= value['max_age_seconds']:
         raise ValueError('remote context is not current')
@@ -61,8 +68,11 @@ def read(settings, now):
 def capture(request):
     """Observe only explicit standard handoff files and the local Dias feed."""
     from . import handoffs, watch
-    if not isinstance(request,dict) or set(request) != {'dias_url','timezone','notes'}:
+    if not isinstance(request,dict) or set(request) - {'tuan'} != {'dias_url','timezone','notes'}:
         raise ValueError('invalid capture request')
+    if 'tuan' in request and (not isinstance(request['tuan'],dict) or set(request['tuan']) != {'store'}
+                              or not (request['tuan']['store'] is None or isinstance(request['tuan']['store'],str))):
+        raise ValueError('invalid Tuan health request')
     import re
     if not re.fullmatch(r'http://127\.0\.0\.1:[0-9]{1,5}',request['dias_url']):
         raise ValueError('Dias must remain loopback-only')
@@ -100,7 +110,20 @@ def capture(request):
         except OSError:row={'status':'unavailable','data':None}
         except ValueError:row={'status':'invalid','data':None}
         result['notes'][target]=row
+    if 'tuan' in request:
+        from . import tuan_health
+        result.update(schema=V2,tuan_health=tuan_health.observe(request['tuan']['store']))
     return result
+
+
+def _previous_tuan(destination):
+    """The last Tuan observation kept at the destination, carried between doctor runs."""
+    from . import tuan_health
+    try:
+        value=loads(destination.read_bytes(),max_bytes=MAX_BYTES).get('tuan_health')
+        return tuan_health.validate(value) if value is not None else None
+    except (OSError,ValueError,AttributeError):
+        return None
 
 
 def collect(path):
@@ -110,6 +133,11 @@ def collect(path):
     destination.parent.mkdir(parents=True,exist_ok=True)
     with publication.writer_lock(destination.parent/'remote-collect'):
         request={k:cfg[k] for k in ('dias_url','timezone','notes')}
+        tuan=cfg.get('tuan')
+        previous=_previous_tuan(destination) if tuan is not None else None
+        if tuan is not None and (previous is None or timefmt.seconds_between(previous['observed_at'],timefmt.now())
+                                 >= int(tuan.get('interval_seconds',TUAN_INTERVAL))):
+            request['tuan']={'store':tuan.get('store')}
         started=time.monotonic()
         try:
             with tempfile.TemporaryFile() as output:
@@ -120,6 +148,13 @@ def collect(path):
             if len(raw)>MAX_BYTES:raise ValueError('capture oversized')
             snapshot=validate(loads(raw,max_bytes=MAX_BYTES),timefmt.now())
             if set(snapshot['notes']) != set(request['notes']):raise ValueError('capture scope mismatch')
+            if tuan is not None:
+                if 'tuan' in request:
+                    from . import tuan_health
+                    current=snapshot.get('tuan_health') or tuan_health._error('capture_unsupported')
+                else:
+                    current=previous
+                snapshot.update(schema=V2,tuan_health=current)
             watch.atomic_json(destination,snapshot)
             status={'ok':True,'observed_at':snapshot['observed_at'],'error':None}
         except (OSError,ValueError,subprocess.TimeoutExpired) as exc:
@@ -127,6 +162,8 @@ def collect(path):
             snapshot={'schema':'taskmaster.remote-context/v1','observed_at':timefmt.now(),'max_age_seconds':45,
                       'timezone':cfg['timezone'],'dias_status':'unavailable','context':None,
                       'notes':{p:{'status':'unavailable','data':None} for p in cfg['notes']}}
+            if tuan is not None:
+                snapshot.update(schema=V2,tuan_health=previous)
             watch.atomic_json(destination,snapshot)
             status={'ok':False,'observed_at':snapshot['observed_at'],'error':type(exc).__name__}
         status['seconds']=round(time.monotonic()-started,3)

@@ -455,6 +455,11 @@ def _tick(cfg, settings, now, owner_cache=None, recover_invalid_export=False):
         sessions = project_sessions(settings, timefmt.now())
     from . import handoffs
     handoff_status = handoffs.publish(settings, timefmt.now() if settings.get('context_file') else now, time.monotonic() - started)
+    from . import tuan_health
+    try:
+        tuan_health.publish(settings, timefmt.now())
+    except (OSError, ValueError):
+        pass  # The morning report treats a missing or stale projection as a gap.
     failed = sum(e['observation']['attempt_status'] == 'failed' for e in doc['entries'])
     status = {'schema_version': 1, 'checked_at': now, 'pid': os.getpid(), 'state': 'source_failed' if error else ('degraded' if failed else 'running'),
               'interval_seconds': settings['interval_seconds'], 'generation': str(generation), 'fingerprint': fingerprint,
