@@ -152,6 +152,19 @@ sidecar reports handoff status as unavailable while retaining the execution
 trail report and inbox body. The execution export and its evidence hashes are
 unchanged.
 
+The same block carries one Tuan collection line when `tuan-health.json` sits
+beside the export (Tuan collection watch, W3). A collector configured with
+`"tuan": {}` (optional `store`, `interval_seconds`, default 900) asks the
+workstation to run `tuan doctor` on that cadence and carries the last
+observation between runs in a `taskmaster.remote-context/v2` envelope. The
+workstation keeps only attention names, per-tool gap counts, the oldest gap's
+age, the Tuan version, or an error code (`tuan_missing`,
+`store_pointer_missing`, `doctor_timeout`, `doctor_failed`, `doctor_invalid`,
+`capture_unsupported`). The watcher projects it as `tuan-health.json`. The line
+reads healthy, needs attention, check failed, or, as a gap, stale (older than
+six hours), no observation yet, or unavailable when the remote context is not
+current. The bundle puller treats `tuan-health.json` as an optional sidecar.
+
 A `saved` handoff means a valid session handoff note was observed within seven
 days. It does not assert that anyone resumed or accepted the work. Reports expose
 only the objective, provider and handoff metadata, never note prose, private paths
