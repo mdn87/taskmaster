@@ -282,6 +282,36 @@ def discover(settings, cache=None):
     return runs, {key: sorted(ids) for key, ids in memberships.items()}, provenance, quarantine
 
 
+def workspace_matches(session, rules, keys):
+    by_key = {}
+    for rule in rules:
+        for key in rule.get('workspace_keys', []):
+            by_key.setdefault(key, set()).add(rule['namespace'] + '/' + rule['id'])
+    if 'workspaceKeyChains' not in session:
+        return set().union(*(by_key.get(key, set()) for key in keys))
+    # Indices keep repeated ancestors small without exposing filesystem paths.
+    chains = session['workspaceKeyChains']
+    if (len(keys) > 128 or len(set(keys)) != len(keys)
+            or any(not re.fullmatch('[a-f0-9]{64}', key) for key in keys)
+            or not isinstance(chains, list) or len(chains) > 65):
+        raise WatchError('invalid workspace ancestry')
+    covered, starts, matches = set(), set(), set()
+    for chain in chains:
+        if (not isinstance(chain, list) or not 1 <= len(chain) <= 32
+                or any(type(i) is not int or not 0 <= i < len(keys) for i in chain)
+                or len(set(chain)) != len(chain) or chain[0] in starts):
+            raise WatchError('invalid workspace ancestry')
+        covered.update(chain)
+        starts.add(chain[0])
+        for i in chain:
+            if keys[i] in by_key:
+                matches.update(by_key[keys[i]])
+                break
+    if covered != set(range(len(keys))):
+        raise WatchError('incomplete workspace ancestry')
+    return matches
+
+
 def session_bindings(sessions, rules, overrides):
     available = {r['namespace'] + '/' + r['id'] for r in rules}
     result = []
@@ -295,7 +325,7 @@ def session_bindings(sessions, rules, overrides):
         keys = session.get('workspaceKeys', [])
         if not isinstance(keys, list) or not all(isinstance(k, str) for k in keys):
             continue
-        exact = {r['namespace'] + '/' + r['id'] for r in rules if set(r.get('workspace_keys', [])) & set(keys)}
+        exact = workspace_matches(session, rules, keys)
         candidates = sorted(exact or {r['namespace'] + '/' + r['id'] for r in rules if set(r['project_ids']) & set(projects)})
         if run_id in overrides:
             target = overrides[run_id]

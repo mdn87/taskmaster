@@ -94,6 +94,23 @@ and the configured `project_ids`. A unique match is labelled `detected`. Multipl
 stay `ambiguous`; none stays `unassigned`. This display context does not authorize
 or prove execution membership.
 
+New Dias producers include optional `workspaceKeyChains` on live and ended session
+context. Each chain lists integer indices into `workspaceKeys`, from one reported
+directory toward its ancestors. Taskmaster selects the nearest registered workspace
+in each chain, then unions those matches. A project no longer competes with its
+parent MyDocs trail merely because both are registered. Independently written parent
+or sibling directories still contribute their own matches; multiple objectives for
+the same directory also remain ambiguous. Manual choices continue to take precedence.
+Legacy flat-only context retains its original conservative matching.
+Dias also omits chains when a key or depth bound prevents complete ancestry,
+so truncation cannot hide an independently reported directory and force a match.
+
+Chains are limited to 65 directories and 32 indices per directory, with at most
+128 distinct hashed keys. Indices must be integers within bounds, cannot repeat in
+a chain, and must collectively cover every flat key; chain starts must be unique.
+Malformed ancestry makes the session feed unavailable rather than silently narrowing
+its candidates. No raw paths or new evidence memberships enter this projection.
+
 ```text
 /taskmaster use lugos/lip-016
 /taskmaster clear

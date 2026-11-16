@@ -101,6 +101,40 @@ class WatchTests(WatchWorkspace):
             {'namespace': 'lugos', 'id': 'two', 'project_ids': ['lugos'], 'workspace_keys': ['b' * 64]}], {})
         self.assertEqual(rows[0]['objective'], 'lugos/one')
 
+    def test_workspace_ancestry_disambiguates_only_within_each_directory(self):
+        keys = ['a' * 64, 'b' * 64, 'c' * 64, 'd' * 64]
+        rules = [{'namespace': name, 'id': 'workspace', 'project_ids': [], 'workspace_keys': [key]}
+                 for name, key in zip(('child', 'parent', 'sibling'), keys)]
+        def binding(indices, chains, overrides=None, selected_rules=None):
+            row = {'runId': 'session-1', 'projectIds': [], 'workspaceKeys': [keys[i] for i in indices]}
+            if chains is not None:
+                row['workspaceKeyChains'] = chains
+            return watch.session_bindings([row], selected_rules or rules, overrides or {})[0]
+        for indices, chains, expected in [
+            ([0, 1], [[0, 1]], ['child/workspace']),
+            ([3, 0, 1], [[0, 1, 2]], ['child/workspace']),
+            ([0, 1, 2], [[0, 1], [2, 1]], ['child/workspace', 'sibling/workspace']),
+            ([1, 0], [[0], [1, 0]], ['child/workspace', 'parent/workspace']),
+            ([0, 1], [[0, 1], [1]], ['child/workspace', 'parent/workspace']),
+            ([0, 1], None, ['child/workspace', 'parent/workspace']),
+        ]:
+            with self.subTest(indices=indices, chains=chains):
+                result = binding(indices, chains)
+                self.assertEqual(result['candidates'], expected)
+                self.assertEqual(result['objective'], expected[0] if len(expected) == 1 else None)
+        duplicate = rules + [dict(rules[0], namespace='other')]
+        self.assertEqual(binding([0, 1], [[0, 1]], selected_rules=duplicate)['provenance'], 'ambiguous')
+        for target in ('parent/workspace', None):
+            result = binding([0, 1], [[0, 1]], {'session-1': target})
+            self.assertEqual((result['objective'], result['provenance']), (target, 'operator'))
+
+    def test_invalid_workspace_chains_fail_closed(self):
+        row = {'runId': 'session-1', 'projectIds': [], 'workspaceKeys': ['a' * 64, 'b' * 64]}
+        for chains in (None, [], [[0]], [[0, 2]], [[0, -1]], [[0, True]], [[0, 1.0]],
+                       [[0, 0, 1]], [[0, 1], [0]], [[0, 1]] * 66, [[0, 1] * 17]):
+            with self.subTest(chains=chains), self.assertRaises(watch.WatchError):
+                watch.session_bindings([{**row, 'workspaceKeyChains': chains}], [], {})
+
     def test_exit_feed_is_published_even_when_no_live_session_was_observed(self):
         sid = 'finished-between-polls'
         rid = 'dias:codex-hook:' + hashlib.sha256(sid.encode()).hexdigest()
@@ -120,6 +154,23 @@ class WatchTests(WatchWorkspace):
         with patch('urllib.request.urlopen', return_value=io.BytesIO(json.dumps(feed).encode())):
             self.assertEqual(watch.project_sessions(settings, NOW)['status'], 'unavailable')
         self.assertEqual(json.loads((self.tmp / 'registry.json').read_text())['sessions'][0], row)
+
+    def test_nearest_workspace_persists_live_and_ended_registration(self):
+        sid = 'nested-session'
+        rid = 'dias:codex-hook:' + hashlib.sha256(sid.encode()).hexdigest()
+        settings = {**json.loads(self.settings.read_text()), 'state_dir': str(self.tmp / 'state'),
+                    'export': str(self.tmp / 'export.json'), 'dias_url': 'http://127.0.0.1:4175',
+                    'rules': [{'namespace': name, 'id': 'workspace', 'project_ids': [], 'workspace_keys': [key]}
+                              for name, key in [('child', 'a' * 64), ('parent', 'b' * 64)]]}
+        row = {'runId': rid, 'projectIds': [], 'workspaceKeys': ['a' * 64, 'b' * 64],
+               'workspaceKeyChains': [[0, 1]], 'resume': {'provider': 'codex', 'session_id': sid}}
+        for active in (True, False):
+            feed = {'schemaVersion': 1, 'sessions': [row] if active else [],
+                    'endedSessions': [] if active else [{**row, 'observedAt': NOW}]}
+            with patch('urllib.request.urlopen', return_value=io.BytesIO(json.dumps(feed).encode())):
+                self.assertEqual(watch.project_sessions(settings, NOW)['status'], 'current')
+            registered = json.loads((self.tmp / 'registry.json').read_text())['sessions'][0]
+            self.assertEqual((registered['objective'], registered['active']), ('child/workspace', active))
 
     def test_slash_correction_persists_and_auto_restores_detection(self):
         class Feed(BaseHTTPRequestHandler):
