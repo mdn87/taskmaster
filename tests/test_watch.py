@@ -33,6 +33,12 @@ class WatchWorkspace(Workspace):
 
 
 class WatchTests(WatchWorkspace):
+    def test_empty_workspace_capture_is_a_valid_empty_store(self):
+        self.annotate([])
+        result = watch.tick(self.config_path, self.settings, now=NOW)
+        self.assertEqual(result['failed_objectives'], 0)
+        self.assertTrue((Path(result['generation']) / 'store').is_dir())
+
     def test_new_run_is_admitted_only_by_exact_scope(self):
         self.run_record()
         first = watch.tick(self.config_path, self.settings, now=NOW)

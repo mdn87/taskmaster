@@ -450,6 +450,9 @@ def _tick(cfg, settings, now, owner_cache=None, recover_invalid_export=False):
         fingerprint = sha256_hex(canonical({'memberships': memberships, 'provenance': sorted(provenance, key=lambda p: p['run_id']),
                                             'objectives': sorted(r['namespace'] + '/' + r['id'] for r in settings['rules'])}))
         generation = Path(previous['generation']) if previous.get('fingerprint') == fingerprint else state / 'captures' / uuid.uuid4().hex
+        # An empty workspace is still a readable store. Without this directory,
+        # a newly registered trail fails before the owner can report zero runs.
+        (generation / 'store').mkdir(parents=True, exist_ok=True)
         if previous.get('fingerprint') != fingerprint:
             for run_id, data in runs.items():
                 for name, raw in data.items():
