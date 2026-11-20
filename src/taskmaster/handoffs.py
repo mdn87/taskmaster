@@ -171,11 +171,16 @@ def inspect_bytes(raw, now, source_timezone=None):
             'status': 'saved' if age <= NOTE_AGE else 'stale'}
 
 
-def append_event(ledger, binding, note, now):
+def latest_event(ledger, binding):
     binding_hash = sha256_hex(canonical(binding))
-    event = next((e for e in reversed(ledger['events']) if
+    return next((e for e in reversed(ledger['events']) if
                   (e['objective'], e['provider'], e['binding_sha256']) ==
                   (binding['objective'], binding['provider'], binding_hash)), None)
+
+
+def append_event(ledger, binding, note, now):
+    binding_hash = sha256_hex(canonical(binding))
+    event = latest_event(ledger, binding)
     if event is None or event['note_sha256'] != note['note_sha256']:
         event = {'previous_event_id': ledger['events'][-1]['event_id'] if ledger['events'] else None,
                  'objective': binding['objective'], 'provider': binding['provider'], 'binding_sha256': binding_hash,
@@ -247,6 +252,14 @@ def publish(settings, now, cycle_seconds=0.0):
                     source['status'], note = 'unavailable', None
                 except (ValueError, OverflowError):
                     source['status'], note = 'invalid', None
+                latest = latest_event(ledger, binding) if snapshot is not None else None
+                if (latest is not None and snapshot['observed_at'] <= latest['recorded_at']
+                        and (note is None or note['note_sha256'] != latest['note_sha256'])):
+                    # Collection can predate an acknowledged hook revision,
+                    # even within the same timestamp second. Keep the ledger
+                    # and await new source evidence; acknowledgement alone
+                    # must not turn an old snapshot into a saved projection.
+                    source['status'], note = 'unavailable', None
                 if note is not None:
                     event = append_event(ledger, binding, note, now)
                     source.update(note, event_id=event['event_id'])

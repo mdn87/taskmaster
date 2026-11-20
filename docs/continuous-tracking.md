@@ -58,6 +58,8 @@ command and pinned version; it rechecks the version once per cycle. The in-memor
 projection cache is bounded to one entry per configured objective (64) and 16 MiB. A changed record forces a
 new owner projection. The first cold refresh can take longer than the poll interval;
 cycles never overlap, and status includes the current phase and measured duration.
+One-shot builds also share one successful owner-version check across their
+objectives, but do not retain that cache between invocations.
 
 Each successful direct source observation has a known observation time. Watched
 objectives therefore use `live` evidence mode, while untouched saved pilots keep
@@ -76,6 +78,27 @@ corpus. A single daemon lock prevents duplicate loops, a cycle lock serializes
 captures, a separate lock protects registration edits, and the export lock/atomic replace
 protect all readers. Failures retry on the next cycle. A stopped watcher is
 visible through `/taskmaster status` and reader freshness.
+
+`/taskmaster refresh` and ordinary real-time `refresh` join the next completed
+watcher cycle when the daemon owns its lifetime lock. A shared request marker
+wakes the watcher between cycles, including when its normal poll interval is
+long. Concurrent callers share that cycle instead of launching cold scans.
+A request waits up to 60 seconds and
+accepts only a cycle that started after the request, with a matching validated
+export and completion record. Timeout reports `busy`; old success is never
+returned as a fresh acknowledgement. Without a daemon, refresh runs directly.
+Explicit `--now`, `--recover-invalid-export`, and `watch --once` remain direct
+operations with the existing exclusive locks.
+
+Remote handoffs for completely registered workspaces append their exact revision
+to the handoff ledger without acquiring the cycle lock or waiting for collection.
+Brief contention on the registration or handoff ledger lock waits up to five
+seconds per lock. An older conflicting collected snapshot cannot reverse an
+acknowledged revision; its source status remains unavailable until collection
+catches up. A genuinely later observation can still record a reverted note.
+The periodic collector and watcher publish their observed handoff status as usual;
+the acknowledgement alone does not claim that a projection has refreshed. New or
+incomplete workspace bindings still use the normal registration locks.
 
 The shared export refreshes agents and the persistent Lugos report integration.
 `trails-report.md` beside it is also regenerated automatically from the exact

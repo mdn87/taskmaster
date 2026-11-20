@@ -88,15 +88,25 @@ def ensure_workspace(config_path,owner_path,value):
     raw=watch.read_json(cfg.watch)
     matches=[r for r in raw['rules'] if keys.intersection(r.get('workspace_keys',[])) or str(r['workspace']).replace('\\','/').rstrip('/').lower()==source.replace('\\','/').rstrip('/').lower()]
     if len(matches)>1:raise ValueError('workspace matches multiple trails')
-    if matches:
-        matches[0]['workspace_keys']=sorted(keys|set(matches[0].get('workspace_keys',[])))
-        watch.atomic_json(cfg.watch,raw)
     prior_note_paths={b['path'] for b in raw.get('handoffs',[])}
     collector_path=Path(owner['collector_config'])
     collector_before=collector_path.read_bytes()
     collector=watch.owner_json(collector_before)  # Validate before any retirement.
     if not isinstance(collector.get('notes'),dict):
         raise ValueError('invalid collector notes')
+    if matches:
+        rule=matches[0]
+        objective=rule['namespace']+'/'+rule['id']
+        bindings={b['provider']:b['path'] for b in settings.get('handoffs',[]) if b['objective']==objective}
+        expected={p:str(mirror/folder/'handoff.md') for p,folder in handoffs.FOLDERS.items()}
+        # The remote-owner lock protects registration/retirement. An existing,
+        # complete binding needs no configuration writes or watcher cycle lock.
+        if (keys.issubset(rule.get('workspace_keys',[])) and bindings==expected
+                and all(collector['notes'].get(path)==str(PureWindowsPath(source)/handoffs.FOLDERS[p]/'handoff.md')
+                        for p,path in expected.items())):
+            return {'objective':objective,'started':False,'notes_bound':False}
+        rule['workspace_keys']=sorted(keys|set(rule.get('workspace_keys',[])))
+        watch.atomic_json(cfg.watch,raw)
     def finalize(objective, archive):
         current=watch.read_json(cfg.watch)
         rule=next(r for r in current['rules'] if r['namespace']+'/'+r['id']==objective)
@@ -140,10 +150,10 @@ def handle(config_path,owner_path,request):
         tokens=shlex.split(request['text'])
         if tokens and tokens[0] in ('/taskmaster','taskmaster'):tokens.pop(0)
         if len(tokens)==3 and tokens[:2]==['workspace','add']:
-            with publication.writer_lock(Path(settings['state_dir'])/'remote-owner'):
+            with publication.writer_lock(Path(settings['state_dir'])/'remote-owner', timeout=5):
                 result=ensure_workspace(config_path,owner_path,tokens[2])
-                refresh_inputs(owner_path)
-                return result
+            refresh_inputs(owner_path)
+            return result
         refresh_inputs(owner_path)
         return commands.execute(config_path,request['text'])
     if request.get('action')=='handoff' and set(request)=={'action','workspace','provider','data'}:
@@ -153,12 +163,12 @@ def handle(config_path,owner_path,request):
         owner=watch.read_json(Path(owner_path))
         now=timefmt.now()
         note=handoffs.inspect_bytes(raw,now,owner.get('timezone','America/New_York'))
-        with publication.writer_lock(Path(settings['state_dir'])/'remote-owner'):
+        with publication.writer_lock(Path(settings['state_dir'])/'remote-owner', timeout=5):
             result=ensure_workspace(config_path,owner_path,request['workspace'])
             cfg=config.load(config_path);settings=watch.load_settings(cfg.watch,cfg)
             binding=next(b for b in settings['handoffs'] if b['objective']==result['objective'] and b['provider']==request['provider'])
             state=Path(settings['state_dir'])
-            with publication.writer_lock(state/'handoffs'):
+            with publication.writer_lock(state/'handoffs', timeout=5):
                 ledger=handoffs.load_ledger(state/'handoff-ledger.json')
                 event=handoffs.append_event(ledger,binding,note,now)
                 if len(ledger['events'])>handoffs.MAX_EVENTS or len((json.dumps(ledger,indent=2)+'\n').encode())>handoffs.MAX_LEDGER:
@@ -167,7 +177,6 @@ def handle(config_path,owner_path,request):
             # Acknowledge the exact revision, even if the periodic collector is busy.
             # Projection freshness remains owned by real source observations.
             result.update(handoff_status='recorded',event_id=event['event_id'],note_sha256=note['note_sha256'])
-            refresh_inputs(owner_path)
             return result
     raise ValueError('unsupported owner action')
 

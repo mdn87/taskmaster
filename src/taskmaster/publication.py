@@ -29,23 +29,29 @@ def lock_path(path: Path) -> Path:
 
 
 @contextmanager
-def writer_lock(path: Path):
+def writer_lock(path: Path, *, timeout: float = 0):
     """Hold one byte on Windows, or flock on POSIX; never unlink the lock file."""
     fd = os.open(lock_path(path), os.O_CREAT | os.O_RDWR, 0o600)
     held = False
     try:
         os.lseek(fd, 0, os.SEEK_SET)
-        try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            if exc.errno in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
-                raise PublicationError("busy", "another writer holds the export lock") from None
-            raise
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise PublicationError("busy", "another writer holds the export lock") from None
+                time.sleep(min(.05, remaining))
         held = True
         # Initialize only after acquiring ownership: competing first writers
         # must never write the byte before one has obtained the lock.

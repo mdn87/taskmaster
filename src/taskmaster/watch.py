@@ -16,7 +16,7 @@ import time
 import urllib.request
 import uuid
 
-from . import builder, config, publication, readmodel, report, sources, timefmt, registry as session_registry
+from . import builder, config, export, publication, readmodel, report, sources, timefmt, registry as session_registry
 from .canonical import canonical, objective_key, sha256_hex
 from .identity import validate_id
 
@@ -411,6 +411,57 @@ def read_session_registry(path):
     return session_registry.validate(owner_json(raw))
 
 
+def request_refresh(config_path, settings_path, *, timeout=60):
+    """Join the next supervised cycle, or publish directly without a daemon.
+
+    A completed cycle must have started after this request and its export must
+    match the completion record. An old success or a partially published cycle
+    is never an acknowledgement. The wait fits inside the owner SSH timeout.
+    """
+    requested_at = timefmt.now()
+    cfg = config.load(config_path)
+    settings = load_settings(settings_path, cfg)
+    if settings.get('remote_owner'):
+        raise WatchError('watcher is remote-owned; use /taskmaster refresh')
+    state = Path(settings['state_dir'])
+    state.mkdir(parents=True, exist_ok=True)
+    try:
+        with publication.writer_lock(state / 'daemon'):
+            supervised = False
+    except publication.PublicationError as exc:
+        if exc.code != 'busy':
+            raise
+        supervised = True
+    if not supervised:
+        return tick(config_path, settings_path)
+
+    deadline = time.monotonic() + timeout
+    with publication.writer_lock(state / 'refresh-request', timeout=min(5, timeout)):
+        previous = read_json(state / 'refresh-request.json', {}).get('requested_at')
+        # Concurrent callers must not overwrite a later request with an older
+        # timestamp. One marker coalesces all callers without a growing queue.
+        latest = max(previous, requested_at) if timefmt.is_valid(previous) else requested_at
+        atomic_json(state / 'refresh-request.json', {'requested_at': latest})
+    while True:
+        status = read_json(state / 'status.json', {})
+        checked_at = status.get('checked_at')
+        # Strict comparison matters because persisted timestamps have only
+        # second precision: a same-second cycle may predate the request.
+        if timefmt.is_valid(checked_at) and checked_at > requested_at:
+            try:
+                doc, _ = export.load(Path(settings['export']))
+            except export.ExportError:
+                pass  # Replacement/recovery may still be in progress.
+            else:
+                if (doc['published_at'] == checked_at
+                        and doc['snapshot_id'] == status.get('snapshot_id')):
+                    return status
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise publication.PublicationError('busy', 'no fresh watcher cycle completed within the refresh wait')
+        time.sleep(min(.25, remaining))
+
+
 def tick(config_path, settings_path, *, now=None, owner_cache=None, recover_invalid_export=False):
     cfg = config.load(config_path)
     settings = load_settings(settings_path, cfg)
@@ -522,6 +573,20 @@ def log(state, event, detail=''):
         stream.write(line + '\n')
 
 
+def wait_for_refresh(state, cycle_started_at, delay):
+    """Sleep until the poll deadline or a request newer than this observation."""
+    deadline = time.monotonic() + delay
+    while True:
+        requested = read_json(Path(state) / 'refresh-request.json', {}).get('requested_at')
+        if (timefmt.is_valid(requested) and requested >= cycle_started_at
+                and timefmt.now() > requested):
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(.25, remaining))
+
+
 def serve(config_path, settings_path):
     cfg = config.load(config_path)
     settings = load_settings(settings_path, cfg)
@@ -533,14 +598,16 @@ def serve(config_path, settings_path):
         try:
             while True:
                 started = time.monotonic()
+                cycle_started_at = timefmt.now()
                 try:
-                    tick(config_path, settings_path, owner_cache=owner_cache)
+                    tick(config_path, settings_path, now=cycle_started_at, owner_cache=owner_cache)
                 except Exception as exc:
                     # Retry on next cycle, preserving the last export and its clock.
                     atomic_json(state / 'last-error.json', {'at': timefmt.now(), 'error': type(exc).__name__})
                     log(state, 'tick failed', f'{type(exc).__name__}: {exc}')
                 settings = load_settings(settings_path, config.load(config_path))
-                time.sleep(max(1, settings['interval_seconds'] - (time.monotonic() - started)))
+                wait_for_refresh(state, cycle_started_at,
+                                 max(1, settings['interval_seconds'] - (time.monotonic() - started)))
         except BaseException as exc:
             log(state, 'stopping', f'{type(exc).__name__}: {exc}')
             raise

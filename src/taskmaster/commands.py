@@ -86,7 +86,7 @@ def execute(config_path, text):
     state = Path(settings['state_dir'])
     command = tokens.pop(0)
     if command == 'refresh' and not tokens:
-        return watch.tick(config_path, cfg.watch)
+        return watch.request_refresh(config_path, cfg.watch)
     if command == 'workspace' and len(tokens) == 2 and tokens[0] == 'add':
         from . import workspaces
         try:
