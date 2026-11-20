@@ -28,6 +28,13 @@ The footprint, annotation bytes, and saved manifest values are read before and a
 
 Limits: 20,000 discovered directory entries (including unlisted filenames), 64 MiB total record bytes, 4 MiB per record. Directory enumeration and record reads are bounded before allocation; growing record files are checked again after reading. Exceeding any limit, or finding a symlink or Windows reparse point anywhere in the enumerated tree, fails with `required_input_invalid`. An unreadable root or a root that isn't a plain directory fails with `required_source_failed`. A run id that matches more than one directory fails with `ambiguous_run_identity`. Malformed annotation IDs and per-objective content bounds fail only that objective; other configured objectives may still publish.
 
+Owner record JSON admits finite floats and integers beyond JavaScript's safe
+integer range, such as Windows process creation timestamps. Those values stay
+private unless an allowlisted field's validator admits them. Duplicate keys,
+invalid Unicode, non-finite numbers, negative zero and depth/byte limits remain
+enforced. The exported content and its readers retain the strict safe-integer
+contract; raw owner bytes are hashed unchanged.
+
 ### Refusing stores with private subtrees
 
 The owner's `rglob` does not skip `credential-isolation/` or `child-output/`, while Taskmaster must never enter them. If either directory is present anywhere in the configured store, Taskmaster refuses the owner projection with `required_input_invalid` before invoking the owner. Directory presence is sufficient: Taskmaster does not inspect private contents to decide whether they are safe. It makes no stable-live-snapshot claim for that store. A private directory appearing during an observation invalidates the attempt with `source_changed_during_read`.

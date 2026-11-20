@@ -57,6 +57,22 @@ class RunRecords(Workspace):
         raw = b'{"pad":"' + b"x" * sources.MAX_RECORD_BYTES + b'"}'
         self.assertEqual(self.failed("state.json", raw), ["required_input_invalid"])
 
+    def test_windows_owner_creation_time_does_not_invalidate_run(self):
+        # Autowork records Windows FILETIME as an integer, beyond JS's safe range.
+        record = self.store / "r1" / "state.json"
+        state = json.loads(record.read_bytes())
+        state["owner"] = {"owner_creation_time": 134376382189767239}
+        write_json(record, state)
+        raw = record.read_bytes()
+        entry, content = only(build(self.config()))
+        self.assertEqual(entry["observation"]["attempt_status"], "ok")
+        self.assertEqual(has_run(content), {"r1": "resolved"})
+        source = next(s for s in content["sources"] if s["owner"] == "autowork")
+        self.assertIn(sources.sha256_hex(raw), [i["raw_sha256"] for i in source["inputs"]])
+        self.assertEqual(record.read_bytes(), raw)
+        self.assertNotIn("owner_creation_time", entry["content_json"])
+        self.assertNotIn("134376382189767239", entry["content_json"])
+
 
 class Membership(Workspace):
     def test_reworded_retries_resolve_only_by_explicit_membership(self):

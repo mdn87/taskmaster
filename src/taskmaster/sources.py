@@ -190,9 +190,13 @@ def manifest_for(root: Path, captured_at: str | None) -> dict:
 
 
 def parse_record(raw: bytes) -> dict | None:
-    """Best-effort strict parse of one JSON record; None if it is not an object."""
+    """Parse an owner object, preserving its numeric domain before projection.
+
+    Unexported metadata can contain large integers (e.g. Windows FILETIME).
+    Exported fields still pass their own validators and the strict export schema.
+    """
     try:
-        doc = loads(raw, max_bytes=MAX_RECORD_BYTES, allow_floats=True)
+        doc = loads(raw, max_bytes=MAX_RECORD_BYTES, allow_floats=True, allow_large_ints=True)
     except StrictJSONError:
         return None
     return doc if isinstance(doc, dict) else None

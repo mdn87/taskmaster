@@ -74,6 +74,17 @@ class StrictParsing(unittest.TestCase):
         self.assertEqual(loads(b"[1.5]", max_bytes=10, allow_floats=True), [1.5])
         self.assertEqual(self.reason(b"[1e999]", allow_floats=True), "non_finite_number")
 
+    def test_large_owner_integers_require_explicit_opt_in(self):
+        raw = b'[134376382189767239,-134376382189767239]'
+        self.assertEqual(loads(raw, max_bytes=100, allow_large_ints=True),
+                         [134376382189767239, -134376382189767239])
+        self.assertEqual(self.reason(raw), "integer_out_of_range")
+        self.assertEqual(self.reason(raw, allow_floats=True), "integer_out_of_range")
+        for raw, reason in ((b'-0', 'negative_zero'), (b'NaN', 'non_finite_number'),
+                            (b'1.5', 'non_integer_number'), (b'{"a":1,"a":2}', 'duplicate_key')):
+            with self.subTest(raw=raw):
+                self.assertEqual(self.reason(raw, allow_large_ints=True), reason)
+
     def test_valid(self):
         self.assertEqual(loads(b'{"a":[1,"\\u00e9",null,true]}', max_bytes=100), {"a": [1, "é", None, True]})
 
