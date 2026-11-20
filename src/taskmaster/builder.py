@@ -223,6 +223,7 @@ def _observe(config: Config, objective: Objective, run_ids: list[str], owner_cac
     present = [r for r in run_ids if located[r] is not None]
     owner_doc, version = None, None
     cache_key = None
+    cache_outcomes = owner_cache is not None and owner_cache.get('cache_outcomes', True)
     if present:
         version_key = (config.autowork.argv, config.autowork.version)
         versions = owner_cache.setdefault('versions', {}) if owner_cache is not None else {}
@@ -231,12 +232,12 @@ def _observe(config: Config, objective: Objective, run_ids: list[str], owner_cac
         version = versions[version_key]
         cache_key = sha256_hex(canonical([list(config.autowork.argv), version, objective.id,
                                          present, str(store.path.absolute()), list(before.dirs), before.files]))
-        cached = owner_cache.get('outcomes', {}).get(cache_key) if owner_cache is not None else None
+        cached = owner_cache.get('outcomes', {}).get(cache_key) if cache_outcomes else None
         owner_doc = cached[0] if cached else autowork.outcome(config.autowork, store.path, objective.id, present)
     after = footprint(store.path)
     if after.skipped_dirs:
         raise _Failure("source_changed_during_read", "autowork", "changed")
-    if owner_cache is not None and cache_key is not None and before.signature() == after.signature():
+    if cache_outcomes and cache_key is not None and before.signature() == after.signature():
         outcomes = owner_cache.setdefault('outcomes', {})
         outcomes[cache_key] = (owner_doc, len(json.dumps(owner_doc)))
         # One entry per configured objective: a smaller bound evicts every entry
@@ -623,6 +624,10 @@ def attempt_objective(config: Config, objective: Objective, now: str, owner_cach
 
 
 def build_entries(config: Config, prior_doc: dict | None, now: str, owner_cache=None) -> list[dict]:
+    # One-shot builds share the same pin check across objectives, too. This
+    # cache belongs to this build only unless the watcher supplies its own.
+    if owner_cache is None:
+        owner_cache = {'cache_outcomes': False}
     prior = {}
     if prior_doc is not None:
         prior = {(e["namespace"], e["id"]): e for e in prior_doc["entries"]}

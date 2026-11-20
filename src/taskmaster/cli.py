@@ -69,7 +69,12 @@ def cmd_refresh(args) -> int:
         settings = watch.load_settings(cfg.watch, cfg)
         if Path(args.export).resolve() != Path(settings['export']).resolve():
             raise config_mod.ConfigError('watch refresh must use its configured shared export')
-        result = watch.tick(args.config, cfg.watch, now=now, recover_invalid_export=args.recover_invalid_export)
+        if args.now is None and not args.recover_invalid_export:
+            result = watch.request_refresh(args.config, cfg.watch)
+        else:
+            # Explicit replay times and recovery are direct operations, not
+            # requests that an ordinary daemon cycle can satisfy.
+            result = watch.tick(args.config, cfg.watch, now=now, recover_invalid_export=args.recover_invalid_export)
         _write(_json_bytes(result))
         return EXIT_OBJECTIVE_FAILED if result['failed_objectives'] else EXIT_OK
     doc = publication.refresh(cfg, Path(args.export), now,
