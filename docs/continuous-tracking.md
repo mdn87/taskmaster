@@ -96,6 +96,9 @@ Brief contention on the registration or handoff ledger lock waits up to five
 seconds per lock. An older conflicting collected snapshot cannot reverse an
 acknowledged revision; its source status remains unavailable until collection
 catches up. A genuinely later observation can still record a reverted note.
+Pending acknowledgements are bound to ledger event IDs in the bounded
+`handoff-acknowledgements.json` sidecar and cleared when collection catches up;
+ordinary collected revisions retain their existing behavior.
 The periodic collector and watcher publish their observed handoff status as usual;
 the acknowledgement alone does not claim that a projection has refreshed. New or
 incomplete workspace bindings still use the normal registration locks.

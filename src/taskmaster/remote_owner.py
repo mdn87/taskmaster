@@ -174,6 +174,7 @@ def handle(config_path,owner_path,request):
                 if len(ledger['events'])>handoffs.MAX_EVENTS or len((json.dumps(ledger,indent=2)+'\n').encode())>handoffs.MAX_LEDGER:
                     raise ValueError('handoff ledger capacity reached')
                 watch.atomic_json(state/'handoff-ledger.json',ledger)
+                handoffs.acknowledge(settings,ledger,event,now)
             # Acknowledge the exact revision, even if the periodic collector is busy.
             # Projection freshness remains owned by real source observations.
             result.update(handoff_status='recorded',event_id=event['event_id'],note_sha256=note['note_sha256'])

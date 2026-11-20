@@ -218,6 +218,34 @@ def load_ledger(path):
     return value
 
 
+def load_acknowledgements(path, ledger):
+    """Bounded pending hook acknowledgements, anchored to the unchanged ledger."""
+    from . import watch
+    pending = watch.read_json(path, {})
+    events = {e['event_id']: e for e in ledger['events']}
+    if len(pending) > 128:
+        raise ValueError('handoff acknowledgement capacity reached')
+    for key, value in pending.items():
+        if (not isinstance(value, dict) or set(value) != {'event_id', 'acknowledged_at'}
+                or not isinstance(value['event_id'], str) or value['event_id'] not in events
+                or events[value['event_id']]['binding_sha256'] != key
+                or not timefmt.is_valid(value['acknowledged_at'])
+                or value['acknowledged_at'] < events[value['event_id']]['recorded_at']):
+            raise ValueError('invalid handoff acknowledgement')
+    return pending
+
+
+def acknowledge(settings, ledger, event, now):
+    """Called under the handoff lock after the exact revision is persisted."""
+    from . import watch
+    path = Path(settings['state_dir']) / 'handoff-acknowledgements.json'
+    pending = load_acknowledgements(path, ledger)
+    active = {sha256_hex(canonical(b)) for b in settings.get('handoffs', [])}
+    pending = {key: value for key, value in pending.items() if key in active}
+    pending[event['binding_sha256']] = {'event_id': event['event_id'], 'acknowledged_at': now}
+    watch.atomic_json(path, pending)
+
+
 def publish(settings, now, cycle_seconds=0.0):
     from . import watch
     state, destination = Path(settings['state_dir']), Path(settings['export']).parent
@@ -233,6 +261,11 @@ def publish(settings, now, cycle_seconds=0.0):
                 from . import remote_context
                 snapshot = remote_context.read(settings, now)
             ledger = load_ledger(state/'handoff-ledger.json')
+            pending_path = state/'handoff-acknowledgements.json'
+            pending = load_acknowledgements(pending_path, ledger)
+            pending_before = dict(pending)
+            active = {sha256_hex(canonical(b)) for b in settings.get('handoffs', [])}
+            pending = {key: value for key, value in pending.items() if key in active}
             projected = {}
             for binding in settings.get('handoffs', []):
                 source = {'provider': binding['provider'], 'status': 'missing', 'note_sha256': None, 'note_updated_at': None, 'event_id': None}
@@ -252,14 +285,19 @@ def publish(settings, now, cycle_seconds=0.0):
                     source['status'], note = 'unavailable', None
                 except (ValueError, OverflowError):
                     source['status'], note = 'invalid', None
-                latest = latest_event(ledger, binding) if snapshot is not None else None
-                if (latest is not None and snapshot['observed_at'] <= latest['recorded_at']
+                binding_hash = sha256_hex(canonical(binding))
+                ack = pending.get(binding_hash)
+                latest = latest_event(ledger, binding) if ack else None
+                if (snapshot is not None and ack and latest and ack['event_id'] == latest['event_id']
+                        and snapshot['observed_at'] <= ack['acknowledged_at']
                         and (note is None or note['note_sha256'] != latest['note_sha256'])):
                     # Collection can predate an acknowledged hook revision,
                     # even within the same timestamp second. Keep the ledger
                     # and await new source evidence; acknowledgement alone
                     # must not turn an old snapshot into a saved projection.
                     source['status'], note = 'unavailable', None
+                else:
+                    pending.pop(binding_hash, None)
                 if note is not None:
                     event = append_event(ledger, binding, note, now)
                     source.update(note, event_id=event['event_id'])
@@ -271,6 +309,8 @@ def publish(settings, now, cycle_seconds=0.0):
                                  'sources': projected.get(r['namespace']+'/'+r['id'], [])} for r in settings['rules']]
             validate(result)
             watch.atomic_json(state/'handoff-ledger.json', ledger)
+            if pending != pending_before:
+                watch.atomic_json(pending_path, pending)
     except (OSError, ValueError, TypeError, KeyError, RecursionError, publication.PublicationError):
         result = empty(now, 'unavailable', max_age)
     watch.atomic_json(destination/'handoffs.json', result)

@@ -207,6 +207,12 @@ class RegisteredHandoffTests(Workspace):
             write_json(Path(settings['context_file']), snapshot)
             handoffs.publish(settings, '2026-10-19T22:00:13Z')
             self.assertEqual(len(handoffs.load_ledger(self.state / 'handoff-ledger.json')['events']), 3)
+            # Ordinary source revisions can occur within one timestamp second;
+            # ordering protection applies only while a hook ack is pending.
+            snapshot['notes'][binding['path']]['data'] = base64.b64encode(NOTE + b'Another change\n').decode()
+            write_json(Path(settings['context_file']), snapshot)
+            handoffs.publish(settings, '2026-10-19T22:00:13Z')
+            self.assertEqual(len(handoffs.load_ledger(self.state / 'handoff-ledger.json')['events']), 4)
 
 
 class BoundedLockTests(Workspace):
