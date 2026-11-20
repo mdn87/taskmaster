@@ -2,8 +2,9 @@
 
 Rejects duplicate keys, invalid UTF-8, a BOM, unpaired surrogates, NaN and
 Infinity, fractions, exponents, -0 and integers outside the interoperable
-range. Owner output may carry floats; `allow_floats=True` admits them so the
-adapter can ignore them, and no float is ever copied into trail content.
+range by default. Owner records may carry floats and larger integers;
+`allow_floats` and `allow_large_ints` admit them only at the input boundary.
+Trail content still uses the strict interoperable numeric domain.
 """
 
 from __future__ import annotations
@@ -31,11 +32,11 @@ def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def _parse_int(lexeme: str) -> int:
+def _parse_int(lexeme: str, *, allow_large_ints: bool = False) -> int:
     if lexeme == "-0":
         raise StrictJSONError("negative_zero")
     value = int(lexeme)
-    if not -MAX_SAFE_INT <= value <= MAX_SAFE_INT:
+    if not allow_large_ints and not -MAX_SAFE_INT <= value <= MAX_SAFE_INT:
         raise StrictJSONError("integer_out_of_range")
     return value
 
@@ -75,7 +76,8 @@ def _check_scalars(s: str) -> None:
             raise StrictJSONError("unpaired_surrogate")
 
 
-def loads(data: bytes, *, max_bytes: int, allow_floats: bool = False) -> Any:
+def loads(data: bytes, *, max_bytes: int, allow_floats: bool = False,
+          allow_large_ints: bool = False) -> Any:
     if not isinstance(data, (bytes, bytearray)):
         raise TypeError("strict JSON input must be bytes")
     if len(data) > max_bytes:
@@ -90,7 +92,7 @@ def loads(data: bytes, *, max_bytes: int, allow_floats: bool = False) -> Any:
         value = json.loads(
             text,
             object_pairs_hook=_pairs,
-            parse_int=_parse_int,
+            parse_int=lambda lexeme: _parse_int(lexeme, allow_large_ints=allow_large_ints),
             parse_float=_owner_float if allow_floats else _reject_float,
             parse_constant=_reject_constant,
         )
