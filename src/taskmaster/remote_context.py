@@ -65,8 +65,18 @@ def read(settings, now):
     return validate(loads(data, max_bytes=MAX_BYTES), now)
 
 
+def _is_apu_capture(request):
+    if not isinstance(request, dict) or 'capture' not in request:
+        return False
+    from .apu_transport import CAPTURE
+    return request['capture'] == CAPTURE
+
+
 def capture(request):
-    """Observe only explicit standard handoff files and the local Dias feed."""
+    """Capture ordinary workstation context or the separate bounded APU summary."""
+    if _is_apu_capture(request):
+        from . import apu_transport
+        return apu_transport.capture(request)
     from . import handoffs, watch
     if not isinstance(request,dict) or set(request) - {'tuan'} != {'dias_url','timezone','notes'}:
         raise ValueError('invalid capture request')
@@ -168,7 +178,10 @@ def collect(path):
             status={'ok':False,'observed_at':snapshot['observed_at'],'error':type(exc).__name__}
         status['seconds']=round(time.monotonic()-started,3)
         watch.atomic_json(destination.with_name('context-transport-status.json'),status)
-        return status
+    if 'apu_review' in cfg:
+        from . import apu_transport
+        apu_transport.poll(cfg['apu_review'], cfg['command'], destination, Path(path))
+    return status
 
 
 def main(argv=None):
@@ -176,8 +189,15 @@ def main(argv=None):
     p.add_argument('--config');p.add_argument('--once',action='store_true');a=p.parse_args(argv)
     if a.mode=='capture':
         raw=sys.stdin.buffer.read(MAX_BYTES+1)
-        result=capture(loads(raw,max_bytes=MAX_BYTES))
-        sys.stdout.buffer.write(json.dumps(result).encode());return 0
+        request=loads(raw,max_bytes=MAX_BYTES)
+        if _is_apu_capture(request):
+            from . import apu_contract, apu_transport
+            result = (apu_transport.capture(request) if len(raw) <= apu_contract.MAX_BYTES
+                      else apu_transport.observation('invalid'))
+            sys.stdout.buffer.write(apu_transport.encode(result))
+        else:
+            sys.stdout.buffer.write(json.dumps(capture(request)).encode())
+        return 0
     while True:
         start=time.monotonic()
         try:result=collect(a.config)

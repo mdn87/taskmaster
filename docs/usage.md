@@ -165,6 +165,23 @@ reads healthy, needs attention, check failed, or, as a gap, stale (older than
 six hours), no observation yet, or unavailable when the remote context is not
 current. The bundle puller treats `tuan-health.json` as an optional sidecar.
 
+An optional `apu_review` section in the remote collector configuration adds
+the nightly Dias audit to this report. Set `output` to the absolute
+`apu-review.json` beside the export and `interval_seconds` to the polling
+interval (default 900). The collector makes a separate request on its
+configured workstation connection. The workstation reads APU's fixed review
+summary, and both ends validate the bounded 8 KiB payload. A mirror can use
+`python -m taskmaster.apu_transport read --file PATH` at the source and
+`write --file PATH` with the result on standard input at the destination.
+
+A morning report shows at most one APU line. It can identify a failed or
+missed run, offer a local evidence lookup, or flag a coverage gap. The
+renderer saves the report date and file digest in `apu-deliveries.json`
+after verifying the written report. Previews leave the action eligible.
+The collector setting `"enabled": false` publishes a disabled observation.
+Mirroring that observation removes the APU line while preserving normal
+trail, handoff and Tuan reporting.
+
 A `saved` handoff means a valid session handoff note was observed within seven
 days. It does not assert that anyone resumed or accepted the work. Reports expose
 only the objective, provider and handoff metadata, never note prose, private paths

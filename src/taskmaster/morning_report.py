@@ -7,6 +7,7 @@ produced by the existing inbox workflow. Unconfigured use preserves it verbatim.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 from dataclasses import dataclass
 import hashlib
 import os
@@ -15,7 +16,7 @@ import subprocess
 import sys
 import tempfile
 
-from . import timefmt
+from . import apu_review, publication, timefmt
 
 BEGIN = b"<!-- BEGIN TASKMASTER V1 -->\n"
 END = b"<!-- END TASKMASTER V1 -->\n"
@@ -25,9 +26,17 @@ MAX_BODY = 2 * 1024 * 1024
 
 
 @dataclass(frozen=True)
+class ReviewContext:
+    sidecar: Path
+    now: str
+    base: bytes
+
+
+@dataclass(frozen=True)
 class Prepared:
     block: bytes | None = None
     error: str | None = None
+    review: ReviewContext | None = None
 
 
 def render_once(export_path: Path, now: str) -> tuple[int, bytes]:
@@ -109,8 +118,31 @@ def prepare(export_path: Path | None, now: str) -> Prepared:
             or b'<!-- BEGIN TASKMASTER' in context or b'<!-- END TASKMASTER' in context
             or DIGEST in context):
         return Prepared(error="renderer_invalid_output")
-    block += context
-    return Prepared(block=block)
+    base = block + context
+    sidecar = export_path.with_name("apu-review.json").absolute()
+    observation = apu_review.observe(sidecar)
+    if observation.get("status") == "disabled":
+        # A configured rollback still serializes with in-flight deliveries.
+        # Leave a workspace that has never enabled APU completely untouched.
+        lock = publication.lock_path(apu_review.ledger_path(sidecar))
+        try:
+            if not any(path.is_file() for path in (sidecar, lock, apu_review.journal_path(sidecar))):
+                return Prepared(block=base)
+        except OSError:
+            pass
+    review = ReviewContext(sidecar, now, base)
+    try:
+        choice = apu_review.select(observation, now, apu_review.read_shown(sidecar))
+    except (ValueError, OSError, OverflowError):
+        choice = apu_review.without_history(observation, now)
+    return _with_review(review, choice)
+
+
+def _with_review(review: ReviewContext, choice: apu_review.Choice) -> Prepared:
+    line = choice.line()
+    if line and len(review.base) + 1 + len(line) <= MAX_BLOCK:
+        return Prepared(block=review.base + b"\n" + line, review=review)
+    return Prepared(block=review.base, review=review)
 
 
 def _status(code: str, body: bytes) -> bytes:
@@ -144,8 +176,9 @@ def verify_document(data: bytes, prepared: Prepared) -> bool:
     return data.startswith(expected)
 
 
-def deliver(body: bytes, output: Path, prepared: Prepared) -> bool:
-    expected = compose(body, prepared)
+def _write_verified(body: bytes, output: Path, prepared: Prepared, expected: bytes | None = None) -> bool:
+    if expected is None:
+        expected = compose(body, prepared)
     output.write_bytes(expected)
     with output.open("rb") as handle:
         actual = handle.read(MAX_BODY + MAX_BLOCK + 1024)
@@ -156,6 +189,58 @@ def deliver(body: bytes, output: Path, prepared: Prepared) -> bool:
         if output.read_bytes() != fallback:
             raise OSError("report verification fallback could not be delivered")
     return valid
+
+
+def _verify_replay(document: bytes, line: bytes) -> bool:
+    # Recheck both the framing and the action in the immutable block. Matching
+    # text in the inbox body does not count as having delivered an APU action.
+    if not document.startswith(BEGIN) or END not in document:
+        return False
+    block = document[len(BEGIN):document.index(END)]
+    return block.endswith(b"\n" + line) and verify_document(document, Prepared(block=block))
+
+
+def deliver(body: bytes, output: Path, prepared: Prepared) -> bool:
+    review = prepared.review
+    if review is None:
+        return _write_verified(body, output, prepared)
+
+    # The renderer's bytes stay frozen. Serialize only the optional review
+    # selection, the verified output, and its receipt across concurrent writers.
+    sidecar = review.sidecar
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(publication.writer_lock(apu_review.ledger_path(sidecar), timeout=10))
+        except publication.PublicationError as exc:
+            raise OSError("report delivery is busy") from exc
+        except OSError:
+            choice = apu_review.without_history(apu_review.observe(sidecar), review.now)
+            return _write_verified(body, output, _with_review(review, choice))
+
+        observation = apu_review.observe(sidecar)
+        pending = None
+        expected = None
+        try:
+            shown = apu_review.read_shown(sidecar)
+            apu_review.recover(sidecar, shown, MAX_BODY + MAX_BLOCK + 1024, _verify_replay)
+            choice = apu_review.select(observation, review.now, shown)
+            prepared = _with_review(review, choice)
+            if choice.ref and prepared.block != review.base:
+                document = compose(body, prepared)
+                pending = apu_review.stage(sidecar, output, choice, review.now, document)
+                expected = document
+        except (OSError, ValueError, OverflowError):
+            prepared = _with_review(review, apu_review.without_history(observation, review.now))
+
+        valid = _write_verified(body, output, prepared, expected)
+        if valid and pending:
+            try:
+                apu_review.confirm(sidecar, shown, pending)
+            except (ValueError, OSError):
+                # The report is delivered. Recovery checks its digest and
+                # verified block before committing this receipt on the next run.
+                pass
+        return valid
 
 
 def main(argv: list[str] | None = None) -> int:
